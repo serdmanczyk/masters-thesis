@@ -80,32 +80,30 @@ bool XBee::Pulse(u_long now)
    // 1500 ms NeighborBx
    // 3000 ms RSSReport 
 
-   // if ((m_ticks % 4) == 0) // 200ms
-   // {
-      ParseRx();
-   // }
+   Rx();
+   ParseRx();
 
    if (m_state == nominal_op)
    {
-      if ((m_ticks % 4) == 0) // 200ms
+      if ((m_ticks % 40) == 0) // 200ms
       {
          AuditOutMsgs();
       }
 
-      if ((m_ticks % 30) == 0) //1.5s
+      if ((m_ticks % 300) == 0) //1.5s
       {
          BxNeighborCheck();
          BxNeighborResponse();
       }
 
-      if ((m_ticks % 60) == 0) // 3s
+      if ((m_ticks % 600) == 0) // 3s
       {
          ReportRSSItoBaseStation();
       }
    }
 
-   if (((m_ticks % 60) == 0) && (m_state == uninitialized)) {ReqAddr();} // re-request
-   if ((m_ticks % 60) == 0) {m_ticks = 0;} // reset
+   if (((m_ticks % 600) == 0) && (m_state == uninitialized)) {ReqAddr();} // re-request
+   if ((m_ticks % 600) == 0) {m_ticks = 0;} // reset
 
    return true;
 }
