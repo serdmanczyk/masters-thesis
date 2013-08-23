@@ -1,13 +1,13 @@
 #ifndef XBee_H
 #define XBee_H
 
-//#include <SoftwareSerial.h>
 #include "queue.h"
 
 #define u_char unsigned char
 #define u_int unsigned int
 #define u_long  unsigned long
 
+#define MSG_SIZE (20) // Maximum neighbors to remember
 #define MAX_NEIGHBORS (5) // Maximum neighbors to remember
 #define MAX_MSGQ (20)
 
@@ -30,12 +30,16 @@ typedef struct
 {
    u_int addr;
    u_char rss;
-   u_char neighrss;
+   u_char nrss;
+   u_char rssi[10];
+   u_char nrssi[10];
+   u_char i;
+   u_char rlen;
 }neighbor;
 
 typedef struct
 {
-    u_char message[100];
+    u_char message[MSG_SIZE];
     u_char len;
     u_char frameid;
     u_char retries;
@@ -77,9 +81,12 @@ private:
     bool RetryOutMsg(u_char frameid);
     bool MarkOutMsg(u_char frameid);
     bool AuditOutMsgs();
+    void AuditNRSSI();
     
     bool UpdateNeighborInfo(u_int addr, u_char rss);
-    bool UpdateNeighborInfo(u_int addr, u_char rss, u_char neighrss);
+    bool UpdateNeighborInfo(u_int addr, u_char rss, u_char nrss);
+
+    u_char navg(u_char *rss, u_int len);
 
     void altleds();
     void rotateleds();
