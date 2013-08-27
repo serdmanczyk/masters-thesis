@@ -1,97 +1,60 @@
+from xhelp import *
 from threading import Thread, Event
 from copy import deepcopy
 from time import sleep, time
 import random
 
-def hexformat(bytebuffer):
-	return " ".join("{0:02x}".format(byte) for byte in bytebuffer)
-
-def unescape(buff):
-	nonescaped = bytearray()
-	for i, byte in enumerate(buff):
-		if byte == 0x7D and i <= len(buff):
-			nonescaped.append(buff[i+1] ^ 0x20)
-		else:
-			nonescaped.append(byte)
-	return nonescaped
-
-def checksum(buff):
-	cksm = 0
-	for byte in unescape(buff):
-		cksm += byte
-	return 0xFF - (cksm & 0xFF)
-
 class XBee(Thread):
 	nodes = []
 	pings = []
 	outmsgs = []
-	addr = 0
-
 	success = []
+	addr = 0
+	tick = 0
+	frameid = 0
+	rxbuffer = bytearray()
+	stop = Event()
+	
 	# States
 	UNINT, REALZ, NORM = range(0,3)
+	state = UNINT
 
 	def __init__(self, serial):
 		Thread.__init__(self)
-		self.stop = Event()
-		self.send = Event()
+		serial.setRTS(True)
 		self.serial = serial
-		self.messages = []
-		self.rxbuffer = bytearray()
-		self.txbuffer = bytearray()
-		self.tick = 0
-		self.frameid = 0
-		self.state = self.UNINT
 		self.start()
 
 	def run(self):
 		self.state = self.REALZ
 		self.addrreq()
+		prev = time()
 		while not self.stop.is_set():
-			sleep(0.010) # 1ms
-			self.Tx()
+			sleep(0.005) # 1ms
 			self.Rx()
-			if (self.tick % 6) == 0: #100ms
-				self.parseRx()
+			if (self.tick % 18) == 0: #100ms
 				self.auditmsgs()
 				self.auditpings()
 			if self.state == self.NORM:
 				# if (self.tick % 62) == 0: #0.5s
-				if (self.tick % 62) == 0: #1s
+				if (self.tick % 182) == 0: #1s
 					self.BxNeighborCheck()
 					self.PingNodes()
-				if (self.tick % 93) == 0: #1.5s
+				if (self.tick % 270) == 0: #1.5s
 					self.BxNeighborResponse()
 					# self.ackreport()
-			if ((self.tick) % 186) and (self.state == self.UNINT):
+			if ((self.tick) % 270) and (self.state == self.UNINT):
 				self.addrreq()
-			if (self.tick % 538) == 0: #9s
+			if (self.tick % 14450) == 0: #9s
 				self.tick = 0
 			self.tick = self.tick+1
 		self.serial.close()
 
-	def Rx(self):		
-		self.serial.setRTS(True)
-		if self.serial.inWaiting():
-			while self.serial.inWaiting():
-				self.rxbuffer += self.serial.read()
-			# print(hexformat(self.rxbuffer))
-		# self.serial.setRTS(False)
-
-	def Tx(self):
-		if self.send.is_set():
-			# print("ou: " + hexformat(self.txbuffer))
-			while self.serial.getCTS() and (len(self.txbuffer)>=2):
-				self.serial.write(self.txbuffer[0:1])
-				del self.txbuffer[0:1]
-				if len(self.txbuffer) == 1:
-					buff = bytearray()
-					buff.append(self.txbuffer[0])
-					buff.append(0x00)
-					self.serial.write(buff)
-					self.txbuffer = bytearray()
-			if len(self.txbuffer) == 0:
-				self.send.clear()
+	def Rx(self):	
+		for i in range(self.serial.inWaiting()):
+			self.rxbuffer += self.serial.read()
+		if len(self.rxbuffer):
+			self.parseRx()
 
 	def id(self):
 		self.frameid = self.frameid + 1
@@ -280,8 +243,7 @@ class XBee(Thread):
 	def retrytmsg(self, frameid):
 		for msg in self.outmsgs:
 			if msg['id'] == frameid:
-				self.txbuffer += msg['msg']
-				self.send.set()	
+				self.serial.write(msg['msg'])
 				msg['retries'] = msg['retries'] + 1
 				if (msg['retries'] > 3):
 					self.outmsgs.remove(msg)
@@ -294,8 +256,7 @@ class XBee(Thread):
 		for msg in self.outmsgs:
 			# print(hexformat(msg['msg']))
 			if (time() - msg['sent']) > 0.2:
-				self.txbuffer += msg['msg']
-				self.send.set()	
+				self.serial.write(msg['msg'])
 				msg['retries'] = msg['retries'] + 1
 			if ((time() - msg['sent']) > 1.0) or (msg['retries'] > 3):
 				deletelist.append(msg)
@@ -314,8 +275,7 @@ class XBee(Thread):
 		}
 		self.outmsgs.append(new)
 		if send:
-			self.txbuffer += message
-			self.send.set()
+			self.serial.write(msg['msg'])
 
 	def PingNodes(self):
 		for node in self.nodes:
@@ -347,8 +307,7 @@ class XBee(Thread):
 		message = bytearray(b'\x7e\x00\x04\x08\x00\x4D\x59\x00')
 		message[4] = fid
 		message[7] = checksum(message[3:])
-		self.txbuffer += message
-		self.send.set()
+		self.serial.write(message)
 
 	def BxNeighborResponse(self):
 		for node in self.nodes:
@@ -358,9 +317,7 @@ class XBee(Thread):
 			message[6] = node['addr']&0xFF
 			message[9] = node['rssi']
 			message[10] = checksum(message[3:])
-			self.txbuffer += message
-			self.send.set()
+			self.serial.write(message)
 
 	def BxNeighborCheck(self):
-		self.txbuffer += bytearray(b'\x7E\x00\x06\x01\x00\xff\xff\x00\x10\xf0')
-		self.send.set()
+		self.serial.write(bytearray(b'\x7E\x00\x06\x01\x00\xff\xff\x00\x10\xf0'))

@@ -1,4 +1,5 @@
 import serial
+from xhelp import *
 from XBee import XBee
 import traceback
 from time import sleep, time
@@ -33,9 +34,6 @@ def loggit(nodes):
 		logging.info("[{:.2f}],[{:.2f}],[0],[{}],[{}],[{}],[{}]".format(now-start, now-node['time'], node['rssi'], node['addr'], node['nrssi'], sum(node['failures'])/len(node['failures'])))
 		for neighbor in node['neighbors']:
 			logging.info("[{:.2f}],[{:.2f}],[{}],[{}],[{}],[{}],[{}]".format(now-start, now-neighbor['time'], node['addr'], neighbor['rssi'], neighbor['addr'], neighbor['nrssi'], nodefs[str(neighbor['addr'])]))
-	
-def hexformat(bytebuffer):
-	return " ".join("{0:02x}".format(byte) for byte in bytebuffer)
 	
 if __name__ == "__main__":
 	maxage = 0.0

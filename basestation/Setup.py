@@ -1,23 +1,6 @@
+from xhelp import *
 import serial
 from time import sleep, time
-
-def hexformat(bytebuffer):
-	return " ".join("{0:02x}".format(byte) for byte in bytebuffer)
-
-def unescape(buff):
-	nonescaped = bytearray()
-	for i, byte in enumerate(buff):
-		if byte is 0x7D:
-			nonescaped.append(buff[i+1] ^ 0x20)
-		else:
-			nonescaped.append(byte)
-	return nonescaped
-
-def checksum(buff):
-	cksm = 0
-	for byte in unescape(buff):
-		cksm += byte
-	return 0xFF - (cksm & 0xFF)
 
 def apiread(apitype="MY"):
 	command = 0x0000
@@ -112,9 +95,10 @@ if __name__ == "__main__":
 	# Sx = serial.Serial(port="/dev/tty.usbserial-A1014JWM", baudrate=9600, timeout=0)
 	Sx = serial.Serial(port="COM3", baudrate=57600, timeout=0, rtscts=True)
 
-	# Sx.setRTS(True)
-	# print(hexformat(apiread("D6")))
-	# print(hexformat(apiread("D6", 0x01)))
+	Sx.setRTS(True)
+	print(hexformat(apiread("D6")))
+	Sx.write(apiread("MY"))
+	read(Sx)
 
 	# Sx.write(apiwrite("RR", 0x00))
 	# Sx.write(apiwrite("RN", 0x00))
