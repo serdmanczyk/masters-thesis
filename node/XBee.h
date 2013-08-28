@@ -58,16 +58,14 @@ public:
     
 
 private:
-    
-    bool ImmediateTx(u_char *msg, u_int len);
     bool ParseRx();
     bool ParseXBee(u_char *message);
-    bool ProcATcmd(u_int cmd, u_char *data);
     
     void ReqAddr();
     // void SetRTS();
     // void BD();
     // void WR();
+    bool ProcATcmd(u_int cmd, u_char *data);
 
     void BxNeighborCheck();
     void BxNeighborResponse();
@@ -88,6 +86,7 @@ private:
 
     u_char navg(u_char *rss, u_int len);
 
+    u_char fid();
     void altleds();
     void rotateleds();
     void toggleled(int led);
