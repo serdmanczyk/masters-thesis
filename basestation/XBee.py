@@ -58,15 +58,19 @@ class XBee(Thread):
 
 	def id(self):
 		self.frameid = self.frameid + 1
+		if (self.frameid == 0x7D) or (self.frameid == 0x7E):
+			self.frameid = 0x7F
+		elif (self.frameid == 0x11) or (self.frameid == 0x13):
+			self.frameid = self.frameid + 1
 		if self.frameid > 255:
 			self.frameid = 0
 		return self.frameid
 
 	def msgsucceed(self, msg, stat):
-		# if stat == 1:
-		# 	print("msg    fail: adr:{:02x} t:{:.4f} id:{:02x} {}".format(msg['addr'], time() - msg['sent'], msg['id'], hexformat(msg['msg'])))
-		# if stat == 0:
-		# 	print("msg success: adr:{:02x} t:{:.4f} id:{:02x} {}".format(msg['addr'], time() - msg['sent'], msg['id'], hexformat(msg['msg'])))
+		if stat == 1:
+			print("msg    fail: adr:{:02x} t:{:.4f} id:{:02x} {}".format(msg['addr'], time() - msg['sent'], msg['id'], hexformat(msg['msg'])))
+		if stat == 0:
+			print("msg success: adr:{:02x} t:{:.4f} id:{:02x} {}".format(msg['addr'], time() - msg['sent'], msg['id'], hexformat(msg['msg'])))
 		self.success.append(stat)
 		if len(self.success) > 20: 
 			self.success.remove(self.success[0])
@@ -78,10 +82,10 @@ class XBee(Thread):
 			# print(node['failures'])
 			if node['addr'] == packet['addr']:
 				node['failures'].append(stat)
-				# if stat == 1:
-				# 	print("ping    fail: adr:{:02x} t:{:02.2f} id:{:02x}".format(node['addr'], time() - packet['sent'], packet['id']))
-				# if stat == 0:
-				# 	print("ping success: adr:{:02x} t:{:02.2f} id:{:02x}".format(node['addr'], time() - packet['sent'], packet['id']))
+				if stat == 1:
+					print("ping    fail: adr:{:02x} t:{:02.2f} id:{:02x}".format(node['addr'], time() - packet['sent'], packet['id']))
+				if stat == 0:
+					print("ping success: adr:{:02x} t:{:02.2f} id:{:02x}".format(node['addr'], time() - packet['sent'], packet['id']))
 				if len(node['failures']) > 20:
 					node['failures'].remove(node['failures'][0])
 				break
@@ -243,7 +247,7 @@ class XBee(Thread):
 	def retrytmsg(self, frameid):
 		for msg in self.outmsgs:
 			if msg['id'] == frameid:
-				self.serial.write(msg['msg'])
+				self.serial.write(escape(msg['msg']))
 				msg['retries'] = msg['retries'] + 1
 				if (msg['retries'] > 3):
 					self.outmsgs.remove(msg)
@@ -256,7 +260,7 @@ class XBee(Thread):
 		for msg in self.outmsgs:
 			# print(hexformat(msg['msg']))
 			if (time() - msg['sent']) > 0.2:
-				self.serial.write(msg['msg'])
+				self.serial.write(escape(msg['msg']))
 				msg['retries'] = msg['retries'] + 1
 			if ((time() - msg['sent']) > 1.0) or (msg['retries'] > 3):
 				deletelist.append(msg)
@@ -275,7 +279,7 @@ class XBee(Thread):
 		}
 		self.outmsgs.append(new)
 		if send:
-			self.serial.write(msg['msg'])
+			self.serial.write(escape(msg['msg']))
 
 	def PingNodes(self):
 		for node in self.nodes:
@@ -294,7 +298,7 @@ class XBee(Thread):
 			message[11] = packetid['addr']&0xFF
 			message[12] = checksum(message[3:])
 			# print(hexformat(message))
-			self.serial.write(message)
+			self.serial.write(escape(message))
 			self.buffout(message, node['addr'], fid, False)
 			for packet in self.pings:
 				if packet['id'] == packetid['id']:
@@ -307,7 +311,7 @@ class XBee(Thread):
 		message = bytearray(b'\x7e\x00\x04\x08\x00\x4D\x59\x00')
 		message[4] = fid
 		message[7] = checksum(message[3:])
-		self.serial.write(message)
+		self.serial.write(escape(message))
 
 	def BxNeighborResponse(self):
 		for node in self.nodes:
@@ -317,7 +321,7 @@ class XBee(Thread):
 			message[6] = node['addr']&0xFF
 			message[9] = node['rssi']
 			message[10] = checksum(message[3:])
-			self.serial.write(message)
+			self.serial.write(escape(message))
 
 	def BxNeighborCheck(self):
-		self.serial.write(bytearray(b'\x7E\x00\x06\x01\x00\xff\xff\x00\x10\xf0'))
+		self.serial.write(escape(bytearray(b'\x7E\x00\x06\x01\x00\xff\xff\x00\x10\xf0')))

@@ -63,14 +63,22 @@ void XBee::Init()
 
 void XBee::Rx()
 {
-   if (Serial.available() && !Rx_q.Full())
-   {
-      toggleled(PIN_LED0);
-   }
+   u_char msg[100];
+   u_int size = 0;
 
-   while (Serial.available() && !Rx_q.Full()) // Send to XBee received characters from PC 
-   { 
-      Rx_q.Enqueue(Serial.read());
+   size = Serial.available();
+   if (size > 0)
+   {
+      if (size > 100)
+         size = 100;
+
+      toggleled(PIN_LED0);
+      for (u_int i=0;i<size;i++)
+      {
+         msg[i] = Serial.read();
+      }
+
+      Rx_q.QueueString(msg, size);
    }
 }
 
@@ -117,12 +125,14 @@ bool XBee::Pulse(u_long now)
 bool XBee::Q_msgout(u_char*s, int len, u_char frameid)
 {
    u_int id = 0;
+   bool found = false;
 
    for (u_int i=0;i<MAX_MSGQ;i++)
    {
       if (!m_outmessages[i].active) 
       {
          id = i;
+         found = true;
          break;
       }
    }
@@ -167,6 +177,7 @@ bool XBee::RetryOutMsg(u_char frameid)
    {
       if (m_outmessages[i].frameid == frameid)
       {
+         toggleled(PIN_LED1);
          Serial.write(m_outmessages[i].message, m_outmessages[i].len);
          m_outmessages[i].retries++;
          m_outmessages[i].senttime = m_now;
@@ -188,6 +199,7 @@ bool XBee::AuditOutMsgs()
             Serial.write(m_outmessages[i].message, m_outmessages[i].len);
             m_outmessages[i].retries++;
             m_outmessages[i].senttime = m_now;
+            toggleled(PIN_LED2);
          }
 
          if (m_outmessages[i].retries > 3)
@@ -198,6 +210,7 @@ bool XBee::AuditOutMsgs()
             m_outmessages[i].senttime = 0;
             m_outmessages[i].retries = 0;
             m_outmessages[i].active = false;
+            toggleled(PIN_LED3);
          }
       }
    }
@@ -230,7 +243,6 @@ bool XBee::ParseXBee(u_char *message)
       switch(message[5])
       {
       case 0x10:{
-         toggleled(PIN_LED0);
          UpdateNeighborInfo(addr, rss);
          break;
          }
@@ -238,7 +250,6 @@ bool XBee::ParseXBee(u_char *message)
       case 0x12:{
          u_char nrss = message[6];
 
-         toggleled(PIN_LED1);
          UpdateNeighborInfo(addr, rss, nrss);
          break;
          }
@@ -249,7 +260,6 @@ bool XBee::ParseXBee(u_char *message)
          u_char naddr = wd(message[9],message[10]);
          u_char nrss = message[11];
 
-         toggleled(PIN_LED2);
          ForwardRSSReporttoBaseStation(saddr, srss, naddr, nrss);
          break;
          }
@@ -258,7 +268,6 @@ bool XBee::ParseXBee(u_char *message)
          u_char pid = message[6];
          u_char naddr = wd(message[7],message[8]);
 
-         toggleled(PIN_LED3);
          if (m_addr == naddr)
          {
             PassPingIn(pid, naddr);
@@ -427,6 +436,25 @@ u_char XBee::navg(u_char *rss, u_int len)
    return rssi;
 }
 
+
+u_char XBee::fid()
+{
+   m_frameid++;
+
+   switch(m_frameid){
+      case 0x7E:
+      case 0x7D:
+      case 0x11:
+      case 0x13:
+         m_frameid++;
+         break;
+      default:
+         break;
+   }
+
+   return m_frameid;
+}
+
 // void XBee::SetRTS(){Serial.write((u_char*)"\x7e\x00\x06\x08\x01\x44\x36\x00\x01\x7b", 10);}
 // void XBee::WR(){Serial.write((u_char*)"\x7e\x00\x06\x08\x01\x57\x52\x00\x00\x4d", 10);}
 // void XBee::BD(){Serial.write((u_char*)"\x7e\x00\x06\x08\x01\x42\x44\x00\x06\x6a", 10);}
@@ -441,15 +469,16 @@ void XBee::BxNeighborResponse()
       if (m_neighbors[i].addr != 0xFFFF)
       {
          u_char msg[11];
+         u_char frid = fid();
 
          memcpy(msg, "\x7E\x00\x07\x01\xFF\xFF\xFF\x00\x12\xFF\xFF", 11);
-         msg[4] = m_frameid++; // frame id
+         msg[4] = frid; // frame id
          msg[5] = hb(m_neighbors[i].addr); // neighbor address high
          msg[6] = lb(m_neighbors[i].addr); // neighbor address low
          msg[9] = m_neighbors[i].rss;  // neighbor rss
-         msg[10] = (u_char)(0xFF - ((int)(0x13 + (m_frameid-1) + bs(m_neighbors[i].addr) + m_neighbors[i].rss)&0xFF)); // checksum
+         msg[10] = (u_char)(0xFF - ((int)(0x13 + frid + bs(m_neighbors[i].addr) + m_neighbors[i].rss)&0xFF)); // checksum
 
-         Q_msgout(msg, 11, m_frameid-1);
+         Q_msgout(msg, 11, frid);
       }
    }
 }
@@ -463,9 +492,10 @@ bool XBee::ReportRSSItoBaseStation()
          u_char msg[16];
          u_char rss = navg(m_neighbors[i].rssi, m_neighbors[i].rlen);
          u_char nrss = navg(m_neighbors[i].nrssi, m_neighbors[i].rlen);
+         u_char frid = fid();
 
          memcpy(msg, "\x7E\x00\x0C\x01\xFF\xFF\xFF\x00\x22\xFF\xFF\xFF\xFF\xFF\xFF\xFF", 16);
-         msg[4] = m_frameid++; // frame id
+         msg[4] = frid; // frame id
          msg[5] = hb(m_raddr); // address high byte
          msg[6] = lb(m_raddr); // address low byte
          msg[9] = hb(m_addr); // source address high
@@ -474,9 +504,9 @@ bool XBee::ReportRSSItoBaseStation()
          msg[12] = hb(m_neighbors[i].addr); // source neighbor address high
          msg[13] = lb(m_neighbors[i].addr); // source neighbor address low
          msg[14] = nrss; // source neighbor rss    
-         msg[15] = (u_char)(0xFF - ((int)(0x23 + (m_frameid-1) + bs(m_raddr) + bs(m_addr) + bs(m_neighbors[i].addr) + rss + nrss)&0xFF)); // checksum
+         msg[15] = (u_char)(0xFF - ((int)(0x23 + frid + bs(m_raddr) + bs(m_addr) + bs(m_neighbors[i].addr) + rss + nrss)&0xFF)); // checksum
 
-         Q_msgout(msg, 16, m_frameid-1);
+         Q_msgout(msg, 16, frid);
       }
    }
 
@@ -486,9 +516,10 @@ bool XBee::ReportRSSItoBaseStation()
 bool XBee::ForwardRSSReporttoBaseStation(u_int saddr, u_char srss, u_int naddr, u_char nrss)
 {
    u_char msg[16];
+   u_char frid = fid();
 
    memcpy(msg, "\x7E\x00\x0C\x01\xFF\xFF\xFF\x00\x22\xFF\xFF\xFF\xFF\xFF\xFF\xFF", 16);
-   msg[4] = m_frameid++; // frame id
+   msg[4] = frid; // frame id
    msg[5] = hb(m_raddr); // address high byte
    msg[6] = lb(m_raddr); // address low byte
    msg[9] = hb(saddr); // source address high
@@ -497,9 +528,9 @@ bool XBee::ForwardRSSReporttoBaseStation(u_int saddr, u_char srss, u_int naddr, 
    msg[12] = hb(naddr); // source neighbor address high
    msg[13] = lb(naddr); // source neighbor address low
    msg[14] = nrss; // source neighbor rss
-   msg[15] = (u_char)(0xFF - ((int)(0x23 + (m_frameid-1) + bs(m_raddr) + bs(saddr) + bs(naddr) + srss + nrss)&0xFF)); // checksum
+   msg[15] = (u_char)(0xFF - ((int)(0x23 + frid + bs(m_raddr) + bs(saddr) + bs(naddr) + srss + nrss)&0xFF)); // checksum
 
-   Q_msgout(msg, 16, m_frameid-1);
+   Q_msgout(msg, 16, frid);
 
    return true;
 }
@@ -507,17 +538,18 @@ bool XBee::ForwardRSSReporttoBaseStation(u_int saddr, u_char srss, u_int naddr, 
 bool XBee::PassPingOut(u_char pid, u_int naddr)
 {
    u_char msg[14];
+   u_char frid = fid();
 
    memcpy(msg, "\x7E\x00\x09\x01\xFF\xFF\xFF\x00\x24\xFF\xFF\xFF\xFF", 14);
-   msg[4] = m_frameid++; // frame id
+   msg[4] = frid; // frame id
    msg[5] = hb(m_faddr); // address high byte
    msg[6] = lb(m_faddr); // address low byte
    msg[9] = pid; // packet id
    msg[10] = hb(naddr); // node address high
    msg[11] = lb(naddr); // node address low
-   msg[12] = (u_char)(0xFF - ((int)(0x25 + (m_frameid-1) + bs(m_faddr) + bs(naddr) + pid)&0xFF)); // checksum
+   msg[12] = (u_char)(0xFF - ((int)(0x25 + frid + bs(m_faddr) + bs(naddr) + pid)&0xFF)); // checksum
 
-   Q_msgout(msg, 14, m_frameid-1);
+   Q_msgout(msg, 14, frid);
 
    return true;
 }
@@ -525,18 +557,19 @@ bool XBee::PassPingOut(u_char pid, u_int naddr)
 bool XBee::PassPingIn(u_char pid, u_int naddr)
 {
    u_char msg[14];
+   u_char frid = fid();
 
    // rotateleds();
    memcpy(msg, "\x7E\x00\x09\x01\xFF\xFF\xFF\x00\x26\xFF\xFF\xFF\xFF", 14);
-   msg[4] = m_frameid++; // frame id
+   msg[4] = frid; // frame id
    msg[5] = hb(m_raddr); // address high byte
    msg[6] = lb(m_raddr); // address low byte
    msg[9] = pid; // packet id
    msg[10] = hb(naddr); // node address high
    msg[11] = lb(naddr); // node address low
-   msg[12] = (u_char)(0xFF - ((int)(0x27 + (m_frameid-1) + bs(m_raddr) + bs(naddr) + pid)&0xFF)); // checksum
+   msg[12] = (u_char)(0xFF - ((int)(0x27 + frid + bs(m_raddr) + bs(naddr) + pid)&0xFF)); // checksum
 
-   Q_msgout(msg, 14, m_frameid-1);
+   Q_msgout(msg, 14, frid);
 
    return true;
 }
