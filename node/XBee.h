@@ -7,7 +7,7 @@
 #define u_int unsigned int
 #define u_long  unsigned long
 
-#define MSG_SIZE (20) // Maximum neighbors to remember
+#define MSG_SIZE (100) // Maximum message size
 #define MAX_NEIGHBORS (5) // Maximum neighbors to remember
 #define MAX_MSGQ (20)
 
@@ -53,7 +53,7 @@ public:
     XBee();
     void Init();
     void Rx();
-    // void Tx();
+    void Tx(u_char *msg, u_int len);
     bool Pulse(unsigned long now);
     
 
@@ -85,8 +85,11 @@ private:
     bool UpdateNeighborInfo(u_int addr, u_char rss, u_char nrss);
 
     u_char navg(u_char *rss, u_int len);
-
+    
+	u_int  escape(u_char *msg, u_int len);
+	u_char checksum(u_char *msg, u_int len);
     u_char fid();
+	
     void altleds();
     void rotateleds();
     void toggleled(int led);
