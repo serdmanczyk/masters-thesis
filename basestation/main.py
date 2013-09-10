@@ -48,7 +48,7 @@ if __name__ == "__main__":
 	# Continuously read and print packets
 	try:
 		while True:
-			# maxage = printnodes(XBee.GetNodes(), maxage)
+			maxage = printnodes(XBee.GetNodes(), maxage)
 			# loggit(XBee.GetNodes()
 			sleep(0.5)
 	except KeyboardInterrupt:

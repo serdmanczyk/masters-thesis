@@ -4,7 +4,7 @@ def hexformat(bytebuffer):
 def unescape(buff):
 	nonescaped = bytearray()
 	for i, byte in enumerate(buff):
-		if byte == 0x7D and i <= len(buff):
+		if byte == 0x7D and i <= (len(buff)-1):
 			nonescaped.append(buff[i+1] ^ 0x20)
 		else:
 			nonescaped.append(byte)
@@ -13,7 +13,7 @@ def unescape(buff):
 def escape(buff):
 	escaped = buff[0:3]
 	for i, byte in enumerate(buff[3:len(buff)-1]):
-		if (byte == 0x7D) or (byte == 0x7E) or (byte == 0x11) or (byte == 0x13):
+		if (byte == 0x7D) or (byte == 0x7E) or (byte == 0x11) or (byte == 0x13) or (byte == 0x0a) or (byte == 0x0d):
 			escaped.append(0x7D)
 			escaped.append(byte ^ 0x20)
 		else:

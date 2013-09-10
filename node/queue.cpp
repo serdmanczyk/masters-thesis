@@ -1,22 +1,17 @@
 #include "Queue.h"
+#include <string.h>
 
 Queue::Queue() 
 : m_Head(0),
   m_Tail(0),
   m_Size(0)
 {
-    for (unsigned int i=0; i<Q_SIZE; i++) 
-    {
-        m_Data[i] = 0;
-    }
+  memset(m_Data, 0, Q_SIZE);
 }
 
 Queue::~Queue()
 {
-    for (unsigned int i=0; i<Q_SIZE; i++) 
-    {
-        m_Data[i] = 0;
-    }
+  memset(m_Data, 0, Q_SIZE);
 }
 
 bool Queue::Enqueue(unsigned char d) 
@@ -70,10 +65,20 @@ bool Queue::DataAt(unsigned int pos)
    pos += m_Head;
    pos %= Q_SIZE;
 
-   if (pos > m_Tail)
+   if ((m_Head + m_Size) > Q_SIZE)
    {
-      return false;
-   }
+      if ((pos >= m_Head) || (pos < m_Tail))
+      {
+        return true;
+      }
+  }
+  else
+  {
+     if (pos >= m_Tail)
+     {
+        return false;
+     }
+  }
 
    return true;
 }
@@ -99,10 +104,20 @@ unsigned char Queue::Peek(unsigned int pos)
    pos += m_Head;
    pos %= Q_SIZE;
 
-   if (pos <= m_Tail)
+   if ((m_Head + m_Size) > Q_SIZE)
    {
-      c = m_Data[pos];
-   }
+      if ((pos >= m_Head) || (pos < m_Tail))
+      {
+        c = m_Data[pos];
+      }
+  }
+  else
+  {
+     if (pos < m_Tail)
+     {
+        c = m_Data[pos];
+     }
+  }
 
    return c;
 }

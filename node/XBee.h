@@ -67,6 +67,7 @@ private:
     // void WR();
     bool ProcATcmd(u_int cmd, u_char *data);
 
+    void ACK(u_int addr, u_char sfid);
     void BxNeighborCheck();
     void BxNeighborResponse();
     bool ReportRSSItoBaseStation();
