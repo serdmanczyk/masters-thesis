@@ -1,14 +1,26 @@
 def hexformat(bytebuffer):
-	return " ".join("{0:02x}".format(byte) for byte in bytebuffer)
+	return "".join("\\x{0:02x}".format(byte) for byte in bytebuffer)
 
 def unescape(buff):
 	nonescaped = bytearray()
+	pas = False
 	for i, byte in enumerate(buff):
+		if pas:
+			pas = False
+			continue
 		if byte == 0x7D and i <= (len(buff)-1):
 			nonescaped.append(buff[i+1] ^ 0x20)
+			pas = True
 		else:
 			nonescaped.append(byte)
 	return nonescaped
+
+def escapedchars(buff):
+	escars = 0
+	for byte in buff:
+		if byte == 0x7D:
+			escars = escars + 1
+	return escars
 
 def escape(buff):
 	escaped = buff[0:3]

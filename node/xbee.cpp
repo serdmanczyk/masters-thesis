@@ -58,7 +58,7 @@ void XBee::Init()
    delay(200);  
     m_state = self_realizing;
 
-   ReqAddr();
+   MY();
 }
 
 void XBee::Rx()
@@ -84,14 +84,14 @@ void XBee::Rx()
 
 void XBee::Tx(u_char *msg, u_int len)
 {
-	u_char out[MSG_SIZE];
-	u_int olen = 0;
+   u_char out[MSG_SIZE];
+   u_int olen = 0;
 
-	memset(out, 0, MSG_SIZE);
-	memcpy(out, msg, len);
+   memset(out, 0, MSG_SIZE);
+   memcpy(out, msg, len);
 
-	out[len] = checksum(out, len);
-	olen = escape(out, len+1);
+   out[len] = checksum(out, len);
+   olen = escape(out, len+1);
 
 	Serial.write(out, olen);
 }
@@ -111,138 +111,30 @@ bool XBee::Pulse(u_long now)
    if (m_state == nominal_op)
    {
       if ((m_ticks % 40) == 0) // 200ms  
-       {
-         AuditNRSSI();
-         AuditOutMsgs();
+      {
+         NRSSIAudit();
+         MsgAudit();
       }
 
       if ((m_ticks % 300) == 0) //1.5s
       {
-         BxNeighborCheck();
-         BxNeighborResponse();
+         Bx();
+         NRSS();
       }
 
       if ((m_ticks % 600) == 0) // 3s
       {
-         ReportRSSItoBaseStation();
+         RSSReport();
       }
    }
 
-   if (((m_ticks % 600) == 0) && (m_state == uninitialized)) {ReqAddr();} // re-request
+   if (((m_ticks % 600) == 0) && (m_state == uninitialized)) {MY();} // re-request
    if ((m_ticks % 600) == 0) {m_ticks = 0;} // Reset
 
    return true;
 }
 
-
-bool XBee::Q_msgout(u_char*s, int len, u_char frameid)
-{
-   u_int id = 0;
-   bool found = false;
-
-   for (u_int i=0;i<MAX_MSGQ;i++)
-   {
-      if (!m_outmessages[i].active) 
-      {
-         id = i;
-         found = true;
-         break;
-      }
-   }
-
-   memcpy(m_outmessages[id].message, s, len);
-   m_outmessages[id].len = len;
-   m_outmessages[id].frameid = frameid;
-   m_outmessages[id].senttime = m_now;
-   m_outmessages[id].active = true;
-   m_outmessages[id].retries = 0;
-
-   Tx(s, len);
-
-   return true;
-}
-
-bool XBee::MarkOutMsg(u_char frameid)
-{
-   bool marked = false;
-
-   for (u_char i=0;i<MAX_MSGQ;i++)
-   {
-      if (m_outmessages[i].frameid == frameid) 
-      {
-         memset(m_outmessages[i].message, 0, MSG_SIZE);
-         m_outmessages[i].frameid = 0;
-         m_outmessages[i].senttime = 0;
-         m_outmessages[i].retries = 0;
-         m_outmessages[i].active = false;
-         marked = true;
-         break;
-      }
-   }
-
-   return marked;
-}
-
-bool XBee::RetryOutMsg(u_char frameid)
-{
-   bool marked = false;
-   for (u_char i=0;i<MAX_MSGQ;i++)
-   {
-      if (m_outmessages[i].frameid == frameid)
-      {
-         Tx(m_outmessages[i].message, m_outmessages[i].len);
-         m_outmessages[i].retries++;
-         m_outmessages[i].senttime = m_now;
-         marked = true;
-      }
-   }
-
-   return marked;
-}
-
-bool XBee::AuditOutMsgs()
-{
-   for (u_char i=0;i<MAX_MSGQ;i++)
-   {
-      if (m_outmessages[i].active)
-      {
-         if ((m_now - m_outmessages[i].senttime) > 100)
-         {
-            Tx(m_outmessages[i].message, m_outmessages[i].len);
-            m_outmessages[i].retries++;
-            m_outmessages[i].senttime = m_now;
-         }
-
-         if (m_outmessages[i].retries > 3)
-         {
-            memset(m_outmessages[i].message, 0, MSG_SIZE);
-            m_outmessages[i].len = 0;
-            m_outmessages[i].frameid = 0;
-            m_outmessages[i].senttime = 0;
-            m_outmessages[i].retries = 0;
-            m_outmessages[i].active = false;
-         }
-      }
-   }
-
-   return true;
-}
-
-void XBee::AuditNRSSI()
-{
-   for (u_char i=0;i<MAX_NEIGHBORS;i++)
-   {
-      m_neighbors[i].rssi[m_neighbors[i].i] = m_neighbors[i].rss;
-      m_neighbors[i].nrssi[m_neighbors[i].i++] = m_neighbors[i].nrss;
-
-      if (m_neighbors[i].i > 9)
-         m_neighbors[i].i = 0;
-      if (m_neighbors[i].rlen < 10)
-         m_neighbors[i].rlen++;
-   }
-}
-
-bool XBee::ParseXBee(u_char *message)
+bool XBee::ParseXBee(u_char *message, u_int length)
 {
    if (message[0] == 0x81)  // received message
    {
@@ -250,80 +142,75 @@ bool XBee::ParseXBee(u_char *message)
       u_char rss = message[3];
       u_char opt = message[4];
       u_char id = message[5];
-      u_char appid = message[6];
 
-      if (appid == 0x10)
+      switch(message[6])
       {
-         UpdateNeighborInfo(addr, rss);
-      }
-
-      if (appid == 0x12)
-      {
-         u_char nrss = message[7];
-
-         UpdateNeighborInfo(addr, rss, nrss);
-      }
-
-      if (appid == 0x22)
-      { 
-         u_int saddr = wd(message[7],message[8]);
-         u_char srss = message[9];  
-         u_int naddr = wd(message[10],message[11]);
-         u_char nrss = message[12];
-
-         toggleled(PIN_LED1);
-         ForwardRSSReporttoBaseStation(saddr, srss, naddr, nrss);
-         ACK(addr, id);
-      }
-      
-      if (appid == 0x24)
-      {
-         u_char pid = message[7];
-         u_int naddr= wd(message[8],message[9]);
-
-         toggleled(PIN_LED2);
-         if (m_addr == naddr)
-         {
-            PassPingIn(pid, naddr);
+         case 0x10:{
+            NeighborUpdate(addr, rss);
+            break;
          }
-         else
-         {
-            PassPingOut(pid, naddr);
-         }
-         ACK(addr, id);
-      }
-      
-      if (appid == 0x26)
-      {
-         u_char pid = message[7];
-         u_int naddr = wd(message[8],message[9]);
+         case 0x12:{
+            u_char nrss = message[7];
 
-         PassPingIn(pid, naddr);
-         ACK(addr, id);
-      }
-      
-      if (appid == 0x27)
-      {
-         toggleled(PIN_LED3);
-         MarkOutMsg(id);
+            NeighborUpdate(addr, rss, nrss);
+            break;
+         }
+         case 0x22:{ 
+            u_int saddr = wd(message[7],message[8]);
+            u_char srss = message[9];  
+            u_int naddr = wd(message[10],message[11]);
+            u_char nrss = message[12];
+
+            toggleled(PIN_LED1);
+            FwdRSSReport(saddr, srss, naddr, nrss);
+            ACK(addr, id);
+            break;
+         }
+         case 0x24:{
+            u_char pid = message[7];
+            u_int naddr= wd(message[8],message[9]);
+
+            toggleled(PIN_LED2);
+            if (m_addr == naddr)
+            {
+               PingIn(pid, naddr);
+            }
+            else
+            {
+               PingOut(pid, naddr);
+            }
+            ACK(addr, id);
+            break;
+         }
+         case 0x26:{
+            u_char pid = message[7];
+            u_int naddr = wd(message[8],message[9]);
+
+            PingIn(pid, naddr);
+            ACK(addr, id);
+            break;
+         }
+         case 0x27:{
+            toggleled(PIN_LED3);
+            MsgMark(id);
+            break;
+         }
       }
    }
-
-   if (message[0] == 0x88) // AT Command Response
+   else if (message[0] == 0x88) // AT Command Response
    {
       u_char frameid = message[1];
       u_int cmd = wd(message[2],message[3]);
       u_char status = message[4];
       u_char *data = &message[5];
 
-      ProcATcmd(cmd, data);
+      ATcmd(cmd, data);
       // 0 = OK
       // 1 = Error
       // 2 = Invalid command
       // 3 = Invalid parameter
    }
-   
-   if (message[0] == 0x8A) // Modem Status
+   else if (message[0] == 0x8A) // Modem Status
    {
       u_char data = message[1];
       // 0 = Hardware reset
@@ -335,53 +222,148 @@ bool XBee::ParseXBee(u_char *message)
       // 5 = Coordinator realignment
       // 6 = Coordinator started
    }
-   
-   if (message[0] == 0x89) // Transmit status
+   else if (message[0] == 0x89) // Transmit status
    {
       u_char frameid = message[1];
       u_char status = message[2];
 
       // if (status == 0) 
       // {
-      //    MarkOutMsg(frameid);
+      //    MsgMark(frameid);
       // }
       if (status & 3) // 1 (No ACK), 2 (CCA Failure), 3 (Purged)
       {
-         RetryOutMsg(frameid);
+         MsgRetry(frameid);
       }
    }  
 
    return true;
 }
 
-bool XBee::ProcATcmd(u_int cmd, u_char *data)
+void XBee::MY(){Serial.write((u_char*)"\x7e\x00\x04\x08\x01\x4d\x59\x50", 8);}
+void XBee::Bx(){Serial.write((u_char *)"\x7E\x00\x07\x01\x00\xFF\xFF\x00\x00\x10\xf0", 11);}
+
+void XBee::ACK(u_int addr, u_char sfid)
 {
-   if (cmd == wd('M','Y'))
+   u_char msg[10];
+
+   memcpy(msg, "\x7E\x00\x07\x01\x00\xFF\xFF\x00\xFF\x27", 10);
+   msg[5] = hb(addr); // neighbor address high
+   msg[6] = lb(addr); // neighbor address low
+   msg[8] = sfid;  // frame id (for ack)
+
+   Tx(msg, 10);
+}
+
+void XBee::NRSS()
+{
+   for (u_char i=0;i<MAX_NEIGHBORS;i++)
+   {         
+      if (m_neighbors[i].addr != 0xFFFF)
+      {
+         u_char msg[11];
+
+         memcpy(msg, "\x7E\x00\x08\x01\x00\xFF\xFF\x00\x00\x12\xFF", 11);
+         msg[5] = hb(m_neighbors[i].addr); // neighbor address high
+         msg[6] = lb(m_neighbors[i].addr); // neighbor address low
+         msg[10] = m_neighbors[i].rss;  // neighbor rss
+
+         Tx(msg, 11);
+      }
+   }
+}
+
+bool XBee::RSSReport()
+{
+   for (u_char i=0;i<MAX_NEIGHBORS;i++)
    {
-      m_addr = wd(data[0],data[1]);
+      if (m_neighbors[i].addr != 0xFFFF)
+      {
+         u_char msg[17];
+         u_char rss = navg(m_neighbors[i].rssi, m_neighbors[i].rlen);
+         u_char nrss = navg(m_neighbors[i].nrssi, m_neighbors[i].rlen);
+         u_char frid = fid();
 
-      if (m_addr == 0x0001)
-      {
-         m_raddr = 0x0000;
-         m_faddr = 0x0003;
-      }
-      else if (m_addr == 0x0003)
-      {
-         m_raddr = 0x0001;
-         m_faddr = 0x0004;
-      }
+         memcpy(msg, "\x7E\x00\x0E\x01\xFF\xFF\xFF\x00\xFF\x22\xFF\xFF\xFF\xFF\xFF\xFF\x00", 17);
+         msg[4] = frid; // frame id
+         msg[5] = hb(m_raddr); // address high byte
+         msg[6] = lb(m_raddr); // address low byte
+         msg[8] = frid;
+         msg[10] = hb(m_addr); // source address high
+         msg[11] = lb(m_addr); // source address low
+         msg[12] = rss; // source rss
+         msg[13] = hb(m_neighbors[i].addr); // source neighbor address high
+         msg[14] = lb(m_neighbors[i].addr); // source neighbor address low
+         msg[15] = nrss; // source neighbor rss    
 
-      if (m_state == self_realizing)
-      {
-         m_state = nominal_op;
-         digitalWrite(PIN_LED0, 0);
+         MsgQueue(msg, 17, frid);
       }
    }
 
    return true;
 }
-   
-bool XBee::UpdateNeighborInfo(u_int addr, u_char rss)
+
+bool XBee::FwdRSSReport(u_int saddr, u_char srss, u_int naddr, u_char nrss)
+{
+   u_char msg[17];
+   u_char frid = fid();
+
+   memcpy(msg, "\x7E\x00\x0E\x01\xFF\xFF\xFF\x00\xFF\x22\xFF\xFF\xFF\xFF\xFF\xFF", 17);
+   msg[4] = frid; // frame id
+   msg[5] = hb(m_raddr); // address high byte
+   msg[6] = lb(m_raddr); // address low byte
+   msg[8] = frid;
+   msg[10] = hb(saddr); // source address high
+   msg[11] = lb(saddr); // source address low
+   msg[12] = srss; // source rss
+   msg[13] = hb(naddr); // source neighbor address high
+   msg[14] = lb(naddr); // source neighbor address low
+   msg[15] = nrss; // source neighbor rss
+
+   MsgQueue(msg, 17, frid);
+
+   return true;
+}
+
+bool XBee::PingOut(u_char pid, u_int naddr)
+{
+   u_char msg[14];
+   u_char frid = fid();
+
+   memcpy(msg, "\x7E\x00\x0B\x01\xFF\xFF\xFF\x00\xFF\x24\xFF\xFF\xFF\x00", 14);
+   msg[4] = frid; // frame id
+   msg[5] = hb(m_faddr); // address high byte
+   msg[6] = lb(m_faddr); // address low byte
+   msg[8] = frid;
+   msg[10] = pid; // packet id
+   msg[11] = hb(naddr); // node address high
+   msg[12] = lb(naddr); // node address low
+
+   MsgQueue(msg, 14, frid);
+
+   return true;
+}
+
+bool XBee::PingIn(u_char pid, u_int naddr)
+{
+   u_char msg[14];
+   u_char frid = fid();
+
+   memcpy(msg, "\x7E\x00\x0B\x01\xFF\xFF\xFF\x00\xFF\x26\xFF\xFF\xFF\x00", 14);
+   msg[4] = frid; // frame id
+   msg[5] = hb(m_raddr); // address high byte
+   msg[6] = lb(m_raddr); // address low byte
+   msg[8] = frid;
+   msg[10] = pid; // packet id
+   msg[11] = hb(naddr); // node address high
+   msg[12] = lb(naddr); // node address low
+
+   MsgQueue(msg, 14, frid);
+
+   return true;
+}
+
+bool XBee::NeighborUpdate(u_int addr, u_char rss)
 {
    bool found = false;
 
@@ -411,7 +393,7 @@ bool XBee::UpdateNeighborInfo(u_int addr, u_char rss)
    return found;
 }
 
-bool XBee::UpdateNeighborInfo(u_int addr, u_char rss, u_char nrss)
+bool XBee::NeighborUpdate(u_int addr, u_char rss, u_char nrss)
 {
    bool found = false;
 
@@ -445,6 +427,99 @@ bool XBee::UpdateNeighborInfo(u_int addr, u_char rss, u_char nrss)
    return found;
 }
 
+bool XBee::MsgQueue(u_char*s, int len, u_char frameid)
+{
+   u_int id = 0;
+   bool found = false;
+
+   for (u_int i=0;i<MAX_MSGQ;i++)
+   {
+      if (!m_outmessages[i].active) 
+      {
+         id = i;
+         found = true;
+         break;
+      }
+   }
+
+   memcpy(m_outmessages[id].message, s, len);
+   m_outmessages[id].len = len;
+   m_outmessages[id].frameid = frameid;
+   m_outmessages[id].senttime = m_now;
+   m_outmessages[id].active = true;
+   m_outmessages[id].retries = 0;
+
+   Tx(s, len);
+
+   return true;
+}
+
+bool XBee::MsgMark(u_char frameid)
+{
+   bool marked = false;
+
+   for (u_char i=0;i<MAX_MSGQ;i++)
+   {
+      if (m_outmessages[i].frameid == frameid) 
+      {
+         memset(m_outmessages[i].message, 0, MSG_SIZE);
+         m_outmessages[i].frameid = 0;
+         m_outmessages[i].senttime = 0;
+         m_outmessages[i].retries = 0;
+         m_outmessages[i].active = false;
+         marked = true;
+         break;
+      }
+   }
+
+   return marked;
+}
+
+bool XBee::MsgRetry(u_char frameid)
+{
+   bool marked = false;
+   for (u_char i=0;i<MAX_MSGQ;i++)
+   {
+      if (m_outmessages[i].frameid == frameid)
+      {
+         Tx(m_outmessages[i].message, m_outmessages[i].len);
+         m_outmessages[i].retries++;
+         m_outmessages[i].senttime = m_now;
+         marked = true;
+      }
+   }
+
+   return marked;
+}
+
+bool XBee::MsgAudit()
+{
+   for (u_char i=0;i<MAX_MSGQ;i++)
+   {
+      if (m_outmessages[i].active)
+      {
+         if ((m_now - m_outmessages[i].senttime) > 100)
+         {
+            Tx(m_outmessages[i].message, m_outmessages[i].len);
+            m_outmessages[i].retries++;
+            m_outmessages[i].senttime = m_now;
+         }
+
+         if (m_outmessages[i].retries > 3)
+         {
+            memset(m_outmessages[i].message, 0, MSG_SIZE);
+            m_outmessages[i].len = 0;
+            m_outmessages[i].frameid = 0;
+            m_outmessages[i].senttime = 0;
+            m_outmessages[i].retries = 0;
+            m_outmessages[i].active = false;
+         }
+      }
+   }
+
+   return true;
+}
+
 u_char XBee::navg(u_char *rss, u_int len)
 {
    u_char rssi = 0x5A; // -90 dbm
@@ -461,50 +536,18 @@ u_char XBee::navg(u_char *rss, u_int len)
 }
 
 
-u_int XBee::escape(u_char *msg, u_int len)
+void XBee::NRSSIAudit()
 {
-	u_int size = len;
-	u_int pos = 3;
-	u_char out[MSG_SIZE];
-	
-	memcpy(out, msg, 3);
-	for (u_int i=3;i<(len-1);i++)
-	{
-		switch(msg[i])
-		{
-		case 0x7D:
-		case 0x7E:
-		case 0x11:
-		case 0x13:
-			out[pos] = 0x7D;
-			out[pos+1] = msg[i] ^0x20;
-			pos++;
-			size++;
-			break;
-		default:
-			out[pos] = msg[i];
-			break;
-		}
-		pos++;
-	}
-	
-	out[size-1] = msg[len-1];
+   for (u_char i=0;i<MAX_NEIGHBORS;i++)
+   {
+      m_neighbors[i].rssi[m_neighbors[i].i] = m_neighbors[i].rss;
+      m_neighbors[i].nrssi[m_neighbors[i].i++] = m_neighbors[i].nrss;
 
-	memcpy(msg, out, size);
-
-	return size;
-}
-	
-u_char XBee::checksum(u_char *msg, u_int len)
-{
-	u_int chksum = 0;
-
-	for (u_int i=3;i<len;i++)
-	{
-		chksum += msg[i];
-	}
-
-	return 0xff - (chksum&0xFF);
+      if (m_neighbors[i].i > 9)
+         m_neighbors[i].i = 0;
+      if (m_neighbors[i].rlen < 10)
+         m_neighbors[i].rlen++;
+   }
 }
 
 u_char XBee::fid()
@@ -529,171 +572,78 @@ u_char XBee::fid()
    return m_frameid;
 }
 
-// void XBee::SetRTS(){Serial.write((u_char*)"\x7e\x00\x06\x08\x01\x44\x36\x00\x01\x7b", 10);}
-// void XBee::WR(){Serial.write((u_char*)"\x7e\x00\x06\x08\x01\x57\x52\x00\x00\x4d", 10);}
-// void XBee::BD(){Serial.write((u_char*)"\x7e\x00\x06\x08\x01\x42\x44\x00\x06\x6a", 10);}
-void XBee::ReqAddr(){Serial.write((u_char*)"\x7e\x00\x04\x08\x01\x4d\x59\x50", 8);}
-
-void XBee::BxNeighborCheck(){Serial.write((u_char *)"\x7E\x00\x07\x01\x00\xFF\xFF\x00\x00\x10\xf0", 11);}
-
-void XBee::ACK(u_int addr, u_char sfid)
+u_int XBee::escape(u_char *msg, u_int len)
 {
-   u_char msg[10];
+   u_int size = len;
+   u_int pos = 3;
+   u_char out[MSG_SIZE];
 
-   memcpy(msg, "\x7E\x00\x07\x01\x00\xFF\xFF\x00\xFF\x27", 10);
-   msg[5] = hb(addr); // neighbor address high
-   msg[6] = lb(addr); // neighbor address low
-   msg[8] = sfid;  // frame id (for ack)
-
-   Tx(msg, 10);
-}
-
-void XBee::BxNeighborResponse()
-{
-   for (u_char i=0;i<MAX_NEIGHBORS;i++)
-   {         
-      if (m_neighbors[i].addr != 0xFFFF)
-      {
-         u_char msg[11];
-
-         memcpy(msg, "\x7E\x00\x08\x01\x00\xFF\xFF\x00\x00\x12\xFF", 11);
-         msg[5] = hb(m_neighbors[i].addr); // neighbor address high
-         msg[6] = lb(m_neighbors[i].addr); // neighbor address low
-         msg[10] = m_neighbors[i].rss;  // neighbor rss
-
-         Tx(msg, 11);
-      }
-   }
-}
-
-bool XBee::ReportRSSItoBaseStation()
-{
-   for (u_char i=0;i<MAX_NEIGHBORS;i++)
+   memcpy(out, msg, 3);
+   for (u_int i=3;i<(len-1);i++)
    {
-      if (m_neighbors[i].addr != 0xFFFF)
+      switch(msg[i])
       {
-         u_char msg[17];
-         u_char rss = navg(m_neighbors[i].rssi, m_neighbors[i].rlen);
-         u_char nrss = navg(m_neighbors[i].nrssi, m_neighbors[i].rlen);
-         u_char frid = fid();
+      case 0x7D:
+      case 0x7E:
+      case 0x11:
+      case 0x13:
+         out[pos] = 0x7D;
+         out[pos+1] = msg[i] ^0x20;
+         pos++;
+         size++;
+         break;
+      default:
+         out[pos] = msg[i];
+         break;
+      }
+      pos++;
+   }
 
-         memcpy(msg, "\x7E\x00\x0E\x01\xFF\xFF\xFF\x00\xFF\x22\xFF\xFF\xFF\xFF\xFF\xFF\x00", 17);
-         msg[4] = frid; // frame id
-         msg[5] = hb(m_raddr); // address high byte
-         msg[6] = lb(m_raddr); // address low byte
-         msg[8] = frid;
-         msg[10] = hb(m_addr); // source address high
-         msg[11] = lb(m_addr); // source address low
-         msg[12] = rss; // source rss
-         msg[13] = hb(m_neighbors[i].addr); // source neighbor address high
-         msg[14] = lb(m_neighbors[i].addr); // source neighbor address low
-         msg[15] = nrss; // source neighbor rss    
+   out[size-1] = msg[len-1];
 
-         Q_msgout(msg, 17, frid);
+   memcpy(msg, out, size);
+
+   return size;
+}
+
+u_char XBee::checksum(u_char *msg, u_int len)
+{
+   u_int chksum = 0;
+
+   for (u_int i=3;i<len;i++)
+   {
+      chksum += msg[i];
+   }
+
+   return 0xff - (chksum&0xFF);
+}
+
+bool XBee::ATcmd(u_int cmd, u_char *data)
+{
+   if (cmd == wd('M','Y'))
+   {
+      m_addr = wd(data[0],data[1]);
+
+      if (m_addr == 0x0001)
+      {
+         m_raddr = 0x0000;
+         m_faddr = 0x0003;
+      }
+      else if (m_addr == 0x0003)
+      {
+         m_raddr = 0x0001;
+         m_faddr = 0x0004;
+      }
+
+      if (m_state == self_realizing)
+      {
+         m_state = nominal_op;
+         digitalWrite(PIN_LED0, 0);
       }
    }
 
    return true;
 }
-
-bool XBee::ForwardRSSReporttoBaseStation(u_int saddr, u_char srss, u_int naddr, u_char nrss)
-{
-   u_char msg[17];
-   u_char frid = fid();
-
-   memcpy(msg, "\x7E\x00\x0E\x01\xFF\xFF\xFF\x00\xFF\x22\xFF\xFF\xFF\xFF\xFF\xFF", 17);
-   msg[4] = frid; // frame id
-   msg[5] = hb(m_raddr); // address high byte
-   msg[6] = lb(m_raddr); // address low byte
-   msg[8] = frid;
-   msg[10] = hb(saddr); // source address high
-   msg[11] = lb(saddr); // source address low
-   msg[12] = srss; // source rss
-   msg[13] = hb(naddr); // source neighbor address high
-   msg[14] = lb(naddr); // source neighbor address low
-   msg[15] = nrss; // source neighbor rss
-
-   Q_msgout(msg, 17, frid);
-
-   return true;
-}
-
-bool XBee::PassPingOut(u_char pid, u_int naddr)
-{
-   u_char msg[14];
-   u_char frid = fid();
-
-   memcpy(msg, "\x7E\x00\x0B\x01\xFF\xFF\xFF\x00\xFF\x24\xFF\xFF\xFF\x00", 14);
-   msg[4] = frid; // frame id
-   msg[5] = hb(m_faddr); // address high byte
-   msg[6] = lb(m_faddr); // address low byte
-   msg[8] = frid;
-   msg[10] = pid; // packet id
-   msg[11] = hb(naddr); // node address high
-   msg[12] = lb(naddr); // node address low
-
-   Q_msgout(msg, 14, frid);
-
-   return true;
-}
-
-bool XBee::PassPingIn(u_char pid, u_int naddr)
-{
-   u_char msg[14];
-   u_char frid = fid();
-
-   memcpy(msg, "\x7E\x00\x0B\x01\xFF\xFF\xFF\x00\xFF\x26\xFF\xFF\xFF\x00", 14);
-   msg[4] = frid; // frame id
-   msg[5] = hb(m_raddr); // address high byte
-   msg[6] = lb(m_raddr); // address low byte
-   msg[8] = frid;
-   msg[10] = pid; // packet id
-   msg[11] = hb(naddr); // node address high
-   msg[12] = lb(naddr); // node address low
-
-   Q_msgout(msg, 14, frid);
-
-   return true;
-}
-
-void XBee::toggleled(int led)
-{
-   digitalWrite(led, !digitalRead(led));
-}
-
- void XBee::rotateleds()
- {
-   switch(m_currled){
-   case 0:
-      digitalWrite(PIN_LED0, 0);
-      digitalWrite(PIN_LED1, 1);
-      break;
-   case 1:
-      digitalWrite(PIN_LED1, 0);
-      digitalWrite(PIN_LED2, 1);
-      break;
-   case 2:
-      digitalWrite(PIN_LED2, 0);
-      digitalWrite(PIN_LED3, 1);
-      break;
-   case 3:
-      digitalWrite(PIN_LED3, 0);
-      digitalWrite(PIN_LED0, 1);
-      break;
-   }
-
-   m_currled++;
-   if (m_currled > 3)
-      m_currled = 0;
- }
-
- void XBee::altleds()
- {
-   digitalWrite(PIN_LED0, !digitalRead(PIN_LED0));
-   digitalWrite(PIN_LED1, !digitalRead(PIN_LED1));
-   digitalWrite(PIN_LED2, !digitalRead(PIN_LED2));
-   digitalWrite(PIN_LED3, !digitalRead(PIN_LED3));
- }
 
 // Thanks to XBee for their elegant API message format
 // which allows this function to be so simple
@@ -760,7 +710,7 @@ bool XBee::ParseRx()
             }
             if ((i - start) == length){
                if (((chksum&0xFF) == 0xFF)){
-                  ParseXBee(message);
+                  ParseXBee(message, length);
                }
                delpos = i+1;
                state = 0;
@@ -775,3 +725,42 @@ bool XBee::ParseRx()
 
    return found;
 }
+
+void XBee::toggleled(int led)
+{
+   digitalWrite(led, !digitalRead(led));
+}
+
+ void XBee::rotateleds()
+ {
+   switch(m_currled){
+   case 0:
+      digitalWrite(PIN_LED0, 0);
+      digitalWrite(PIN_LED1, 1);
+      break;
+   case 1:
+      digitalWrite(PIN_LED1, 0);
+      digitalWrite(PIN_LED2, 1);
+      break;
+   case 2:
+      digitalWrite(PIN_LED2, 0);
+      digitalWrite(PIN_LED3, 1);
+      break;
+   case 3:
+      digitalWrite(PIN_LED3, 0);
+      digitalWrite(PIN_LED0, 1);
+      break;
+   }
+
+   m_currled++;
+   if (m_currled > 3)
+      m_currled = 0;
+ }
+
+ void XBee::altleds()
+ {
+   digitalWrite(PIN_LED0, !digitalRead(PIN_LED0));
+   digitalWrite(PIN_LED1, !digitalRead(PIN_LED1));
+   digitalWrite(PIN_LED2, !digitalRead(PIN_LED2));
+   digitalWrite(PIN_LED3, !digitalRead(PIN_LED3));
+ }

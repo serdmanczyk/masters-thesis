@@ -56,40 +56,39 @@ public:
     void Tx(u_char *msg, u_int len);
     bool Pulse(unsigned long now);
     
-
 private:
-    bool ParseRx();
-    bool ParseXBee(u_char *message);
-    
-    void ReqAddr();
     // void SetRTS();
     // void BD();
     // void WR();
-    bool ProcATcmd(u_int cmd, u_char *data);
+    bool ParseXBee(u_char *message, u_int length);
 
+    void MY();
+    void Bx();
+    void NRSS();
+    bool RSSReport();
+    bool FwdRSSReport(u_int saddr, u_char srss, u_int naddr, u_char nrss);
     void ACK(u_int addr, u_char sfid);
-    void BxNeighborCheck();
-    void BxNeighborResponse();
-    bool ReportRSSItoBaseStation();
-    bool ForwardRSSReporttoBaseStation(u_int saddr, u_char srss, u_int naddr, u_char nrss);
 
-    bool PassPingOut(u_char pid, u_int naddr);
-    bool PassPingIn(u_char pid, u_int naddr);
-    
-    bool Q_msgout(u_char*s, int len, u_char frameid);
-    bool RetryOutMsg(u_char frameid);
-    bool MarkOutMsg(u_char frameid);
-    bool AuditOutMsgs();
-    void AuditNRSSI();
-    
-    bool UpdateNeighborInfo(u_int addr, u_char rss);
-    bool UpdateNeighborInfo(u_int addr, u_char rss, u_char nrss);
+    bool PingOut(u_char pid, u_int naddr);
+    bool PingIn(u_char pid, u_int naddr); 
+
+    bool MsgAudit();    
+    bool MsgQueue(u_char*s, int len, u_char frameid);
+    bool MsgRetry(u_char frameid);
+    bool MsgMark(u_char frameid);
+
+    bool UpdateNeighbor(u_int addr, u_char rss);
+    bool UpdateNeighbor(u_int addr, u_char rss, u_char nrss);
 
     u_char navg(u_char *rss, u_int len);
-    
+    void NRSSIAudit();
+
+    u_char fid();
 	u_int  escape(u_char *msg, u_int len);
 	u_char checksum(u_char *msg, u_int len);
-    u_char fid();
+
+    bool ATcmd(u_int cmd, u_char *data);
+    bool ParseRx();
 	
     void altleds();
     void rotateleds();

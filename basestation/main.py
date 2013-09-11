@@ -15,8 +15,8 @@ def printnodes(nodes, maxage):
 	# print("\nreport")
 	for node in nodes:
 		ages.append(time()-node['time'])
-		# print(node['failures'])
-		print("Node:{} RSSI:{} NRSSI:{} age:{} success:%{:.0f} Neighbors:{}".format(node['addr'], node['rssi'], node['nrssi'], 'y' if (now-node['time']) > 1.5 else 'n', 100-((sum(node['failures'])/len(node['failures']))*100), len(node['neighbors'])))
+		# print(node['pingsuccess'])
+		print("Node:{} RSSI:{} NRSSI:{} age:{} success:%{:.0f} Neighbors:{}".format(node['addr'], node['rssi'], node['nrssi'], 'y' if (now-node['time']) > 1.5 else 'n', 100-((sum(node['pingsuccess'])/len(node['pingsuccess']))*100), len(node['neighbors'])))
 		for neighbor in node['neighbors']:
 			ages.append(time()-neighbor['time'])
 			print("\tNeighbor:{} RSSI:{} NRSSI:{} age:{}".format(neighbor['addr'], neighbor['rssi'], neighbor['nrssi'],  'y' if (now-neighbor['time']) > 3 else 'n'))
@@ -27,13 +27,10 @@ def printnodes(nodes, maxage):
 
 def loggit(nodes):
 	now = time()
-	nodefs = {'0':0}
 	for node in nodes:
-		nodefs[str(node['addr'])] = sum(node['failures'])/len(node['failures'])
-	for node in nodes:
-		logging.info("[{:.2f}],[{:.2f}],[0],[{}],[{}],[{}],[{}]".format(now-start, now-node['time'], node['rssi'], node['addr'], node['nrssi'], sum(node['failures'])/len(node['failures'])))
+		logging.info("[{:.2f}],[{:.2f}],[0],[{}],[.{}],[{}],[{}]".format(now-start, now-node['time'], node['rssi'], node['addr'], node['nrssi'], sum(node['pingsuccess'])/len(node['pingsuccess'])))
 		for neighbor in node['neighbors']:
-			logging.info("[{:.2f}],[{:.2f}],[{}],[{}],[{}],[{}],[{}]".format(now-start, now-neighbor['time'], node['addr'], neighbor['rssi'], neighbor['addr'], neighbor['nrssi'], nodefs[str(neighbor['addr'])]))
+			logging.info("[{:.2f}],[{:.2f}],[{}],[{}],[{}],[{}],[{}]".format(now-start, now-neighbor['time'], node['addr'], neighbor['rssi'], neighbor['addr'], neighbor['nrssi'], 0))
 	
 if __name__ == "__main__":
 	maxage = 0.0
@@ -49,7 +46,7 @@ if __name__ == "__main__":
 	try:
 		while True:
 			maxage = printnodes(XBee.GetNodes(), maxage)
-			# loggit(XBee.GetNodes()
+			# loggit(XBee.GetNodes())
 			sleep(0.5)
 	except KeyboardInterrupt:
 		pass

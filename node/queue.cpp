@@ -74,13 +74,13 @@ bool Queue::DataAt(unsigned int pos)
   }
   else
   {
-     if (pos >= m_Tail)
+     if (pos < m_Tail)
      {
-        return false;
+        return true;
      }
   }
 
-   return true;
+   return false;
 }
 
 bool Queue::WriteAt(unsigned int pos, unsigned char c)
