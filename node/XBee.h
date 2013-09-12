@@ -57,9 +57,6 @@ public:
     bool Pulse(unsigned long now);
     
 private:
-    // void SetRTS();
-    // void BD();
-    // void WR();
     bool ParseXBee(u_char *message, u_int length);
 
     void MY();
@@ -77,8 +74,8 @@ private:
     bool MsgRetry(u_char frameid);
     bool MsgMark(u_char frameid);
 
-    bool UpdateNeighbor(u_int addr, u_char rss);
-    bool UpdateNeighbor(u_int addr, u_char rss, u_char nrss);
+    bool NeighborUpdate(u_int addr, u_char rss);
+    bool NeighborUpdate(u_int addr, u_char rss, u_char nrss);
 
     u_char navg(u_char *rss, u_int len);
     void NRSSIAudit();

@@ -1,6 +1,3 @@
-def hexformat(bytebuffer):
-	return "".join("\\x{0:02x}".format(byte) for byte in bytebuffer)
-
 def unescape(buff):
 	nonescaped = bytearray()
 	pas = False
@@ -41,3 +38,6 @@ def checksum(buff):
 	for byte in unescape(buff):
 		cksm += byte
 	return 0xFF - (cksm & 0xFF)
+	
+def hexformat(bytebuffer):
+	return "".join("\\x{0:02x}".format(byte) for byte in bytebuffer)
