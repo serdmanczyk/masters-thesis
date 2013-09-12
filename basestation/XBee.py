@@ -1,8 +1,6 @@
 from Xhelp import *
 from threading import Thread, Event
-from copy import deepcopy
 from time import sleep, time
-import random
 
 class XBee(Thread):
 	nodes = []
@@ -55,20 +53,19 @@ class XBee(Thread):
 
 			if self.state == self.NORM:
 			
-				if (self.tick % 72) == 0: #400ms
+				if (self.tick % 91) == 0: #400ms
 					self.PingNodes()
 			
-				if (self.tick % 182) == 0: #1s
-					self.PingNodes()
+				if (self.tick % 109) == 0: #.6s
 					self.BXRSS()
-			
-				if (self.tick % 270) == 0: #1.5s
+
+				if (self.tick % 147) == 0: #.8s
 					self.NeighborRSSResponse()
 
-			if ((self.tick) % 270) and (self.state == self.UNINT):
+			if ((self.tick) % 182) and (self.state == self.UNINT):
 				self.MY()
 
-			if (self.tick % 14450) == 0: #9s
+			if (self.tick % 182) == 0: #1s
 				self.tick = 0
 
 			self.tick = self.tick+1

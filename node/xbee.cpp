@@ -116,20 +116,24 @@ bool XBee::Pulse(u_long now)
          MsgAudit();
       }
 
-      if ((m_ticks % 300) == 0) //1.5s
+      if ((m_ticks % 240) == 0) //.6s
       {
          Bx();
+      }
+
+      if ((m_ticks % 240) == 0) //.8s
+      {
          NRSS();
       }
 
-      if ((m_ticks % 600) == 0) // 3s
+      if ((m_ticks % 300) == 0) //1s
       {
-         RSSReport();
+         NRSS();
       }
    }
 
-   if (((m_ticks % 600) == 0) && (m_state == uninitialized)) {MY();} // re-request
-   if ((m_ticks % 600) == 0) {m_ticks = 0;} // Reset
+   if (((m_ticks % 300) == 0) && (m_state == uninitialized)) {MY();} // re-request
+   if ((m_ticks % 300) == 0) {m_ticks = 0;} // Reset
 
    return true;
 }
