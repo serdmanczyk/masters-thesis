@@ -11,6 +11,7 @@ m_frameid(0),
 m_ticks(0),
 m_now(0),
 m_currled(0),
+m_CtrlIn(110),  // 110 for demo, 90 nominal
 m_state(uninitialized)
 {
    for (u_int i=0;i<MAX_NEIGHBORS;i++)
@@ -72,7 +73,6 @@ void XBee::Rx()
       if (size > MSG_SIZE)
          size = MSG_SIZE;
 
-      toggleled(PIN_LED0);
       for (u_int i=0;i<size;i++)
       {
          msg[i] = Serial.read();
@@ -114,6 +114,11 @@ bool XBee::Pulse(u_long now)
       {
          NRSSIAudit();
          MsgAudit();
+      }
+
+      if ((m_ticks % 40) == 0) // 200ms  
+      {
+         ServoMgr();
       }
 
       if ((m_ticks % 240) == 0) //.6s
@@ -165,7 +170,6 @@ bool XBee::ParseXBee(u_char *message, u_int length)
             u_int naddr = wd(message[10],message[11]);
             u_char nrss = message[12];
 
-            toggleled(PIN_LED1);
             FwdRSSReport(saddr, srss, naddr, nrss);
             ACK(addr, id);
             break;
@@ -174,9 +178,9 @@ bool XBee::ParseXBee(u_char *message, u_int length)
             u_char pid = message[7];
             u_int naddr= wd(message[8],message[9]);
 
-            toggleled(PIN_LED2);
             if (m_addr == naddr)
             {
+               toggleled(PIN_LED0);
                PingIn(pid, naddr);
             }
             else
@@ -195,7 +199,6 @@ bool XBee::ParseXBee(u_char *message, u_int length)
             break;
          }
          case 0x27:{
-            toggleled(PIN_LED3);
             MsgMark(id);
             break;
          }
@@ -524,6 +527,65 @@ bool XBee::MsgAudit()
    return true;
 }
 
+void XBee::ServoMgr()
+{
+   // V is modeled for a continuous servo
+   //  Where V = 90 means standing still
+   //        V = 0 means full speed backwards
+   //        V = 180 means full speed forwards
+   u_char V = CalcCtrl();
+
+   //  LED output demo
+   if (V == 110)
+   {
+      //  Move forward, steady pace
+      digitalWrite(PIN_LED1, 0);
+      digitalWrite(PIN_LED2, 1);
+      digitalWrite(PIN_LED3, 0);
+   }
+   else if (V == 90)
+   {
+      //  Stop (let neighbor catch up)
+      digitalWrite(PIN_LED1, 1);
+      digitalWrite(PIN_LED2, 1);
+      digitalWrite(PIN_LED3, 0);
+   }
+   else if (V == 70)
+   {
+      //  Back up (losing connection to rear)
+      digitalWrite(PIN_LED1, 1);
+      digitalWrite(PIN_LED2, 0);
+      digitalWrite(PIN_LED3, 0);
+   }
+   else if (V == 130)
+   {
+      //  Speed up (too close to rear)
+      digitalWrite(PIN_LED1, 0);
+      digitalWrite(PIN_LED2, 1);
+      digitalWrite(PIN_LED3, 1);
+   }
+}
+
+u_char XBee::CalcCtrl()
+{
+   u_char RSSth = 80;
+   u_char rrssi = 70;
+   u_char Vout = m_CtrlIn;
+
+   rrssi = rearrssi();
+
+   if (rrssi > RSSth)
+      Vout = 90;
+
+   if (rrssi > (RSSth + 5))
+      Vout -= 30;  //  May or may not be forwards / backwards
+
+   if (rrssi < (RSSth - 10))
+      Vout += 20;
+
+      return Vout; 
+}
+
 u_char XBee::navg(u_char *rss, u_int len)
 {
    u_char rssi = 0x5A; // -90 dbm
@@ -552,6 +614,23 @@ void XBee::NRSSIAudit()
       if (m_neighbors[i].rlen < 10)
          m_neighbors[i].rlen++;
    }
+}
+
+u_char XBee::rearrssi()
+{
+   u_char rrssi = 70;
+   u_char nrssi = 70;
+
+   for (u_char i=0;i<MAX_NEIGHBORS;i++)
+   {
+      if (m_neighbors[i].addr == m_raddr)
+      {
+         rrssi = navg(m_neighbors[i].rssi, m_neighbors[i].rlen);
+         nrssi = navg(m_neighbors[i].nrssi, m_neighbors[i].rlen);
+      }
+   }
+
+   return rrssi > nrssi ? nrssi : rrssi;
 }
 
 u_char XBee::fid()
