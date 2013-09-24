@@ -23,7 +23,8 @@
 enum STATE {
     uninitialized,
     self_realizing,
-    nominal_op
+    nominal_op,
+    get_down_to_business
 };
 
 typedef struct
