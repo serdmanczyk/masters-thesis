@@ -58,6 +58,8 @@ public:
     
 private:
     bool ParseXBee(u_char *message, u_int length);
+    bool ATcmd(u_int cmd, u_char *data);
+    bool ParseRx();
 
     void MY();
     void Bx();
@@ -77,21 +79,18 @@ private:
     bool NeighborUpdate(u_int addr, u_char rss);
     bool NeighborUpdate(u_int addr, u_char rss, u_char nrss);
 
-    void ServoMgr();
-    u_char CalcCtrl(); 
-    u_char navg(u_char *rss, u_int len);
     void NRSSIAudit();
+    void ServoMgr();
+    int CalcCtrl(); 
+    u_char navg(u_char *rss, u_int len);
     u_char rearrssi();
+    u_char frontrssi();
 
     u_char fid();
 	u_int  escape(u_char *msg, u_int len);
 	u_char checksum(u_char *msg, u_int len);
 
-    bool ATcmd(u_int cmd, u_char *data);
-    bool ParseRx();
 	
-    void altleds();
-    void rotateleds();
     void toggleled(int led);
 
     Queue Rx_q;
@@ -102,9 +101,9 @@ private:
     u_int m_raddr;
     u_char m_frameid;
     u_char m_currled;
-    u_char m_CtrlIn;
     u_int m_ticks;
     u_long m_now;
+    int m_CtrlIn;
     STATE   m_state;
 };
 #endif
