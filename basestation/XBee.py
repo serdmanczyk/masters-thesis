@@ -1,12 +1,13 @@
 from Xhelp import *
+import serial
 from threading import Thread, Event
+from dllist import LinkedList
 from time import sleep, time
 
 class XBee(Thread):
-	nodes = []
+	nodes = LinkedList()
 	pings = []
 	outmsgs = []
-	success = []
 	addr = 0
 	tick = 0
 	frameid = 0
@@ -16,10 +17,11 @@ class XBee(Thread):
 	UNINT, REALZ, NORM = range(0,3) # States
 	state = UNINT
 
-	def __init__(self, serial):
+	def __init__(self, serialport):
 		Thread.__init__(self)
-		serial.setRTS(True)
-		self.serial = serial
+		self.serial = serial.Serial(port=serialport, baudrate=57600, timeout=0, rtscts=True)
+		self.serial.setRTS(True)
+		self.last = time()
 		self.start()
 
 	def shutdown(self):
@@ -27,7 +29,7 @@ class XBee(Thread):
 		self.join()
 
 	def GetNodes(self):
-		return list(self.nodes)
+		return list(self.nodes.elements())
 
 	def id(self):
 		self.frameid = self.frameid + 1
@@ -47,14 +49,16 @@ class XBee(Thread):
 			sleep(0.005) # 1ms
 			self.Rx()
 			
-			if (self.tick % 18) == 0: #100ms
+			if (self.tick % 182) == 0: #100ms
 				self.msgaudit()
 				self.pingaudit()
 
 			if self.state == self.NORM:
 			
-				if (self.tick % 91) == 0: #400ms
+				if (self.tick % 46) == 0: #400ms
 					self.PingNodes()
+					# print(time() - self.last)
+					# self.last = time()
 			
 				if (self.tick % 109) == 0: #.6s
 					self.BXRSS()
@@ -82,7 +86,7 @@ class XBee(Thread):
 		if rxtype == 0x81: # received message
 			addr = (message[1]<<8) + message[2]
 			rssi = message[3]
-			options = message[4]
+			# options = message[4]
 			msgid = message[5]
 			appid = message[6]
 
@@ -94,16 +98,16 @@ class XBee(Thread):
 				self.updatenodeinfo(addr, rssi, nrssi)
 			
 			elif appid == 0x22:
-				srcaddr = (message[7]<<8) + message[8]
-				srcrssi = message[9]
-				neighadd = (message[10]<<8) + message[11]
-				neighrssi = message[12]
-				self.updatenodeneighborinfo(srcaddr, srcrssi, neighadd, neighrssi)
+				naddr = (message[7]<<8) + message[8]
+				nrssi = message[9]
+				neaddr = (message[10]<<8) + message[11]
+				nerssi = message[12]
+				self.updatenodeneighborinfo(naddr, nrssi, neaddr, nerssi)
 				self.ACK(addr, msgid)
 			
 			elif appid == 0x26:
 				pid = message[7]
-				nodeaddr = (message[8]<<8) + message[9]
+				# nodeaddr = (message[8]<<8) + message[9]
 				self.pingmark(pid)
 				self.ACK(addr, msgid)
 			
@@ -127,44 +131,50 @@ class XBee(Thread):
 				self.state = self.NORM
 				self.addr = ((message[5]<<8) + message[6])
 
-	def updatenodeinfo(self, addr, rssi, nrssi=0x00):
-		found = False
-		for node in self.nodes:
+	def getnode(self, addr):
+		for node in self.nodes.elements():
 			if node['addr'] == addr:
-				node['rssi'] = rssi
-				if nrssi is not 0x00:
-					node['nrssi'] = nrssi
-				node['time'] = time()
-				found = True
-				break
-		if not found:
-			new = {'addr':addr ,'rssi':rssi ,'nrssi':nrssi, 'time':time(), 'neighbors':[], 'pingsuccess':[0]}
-			self.nodes.append(new)
+				return node
+		return None
 
-	def updatenodeneighborinfo(self, saddr, srssi, naddr, nrssi):
-		found = False
-		for node in self.nodes:
-			if node['addr'] == saddr:
-				found = True
-				nfound = False
-				for neighbor in node['neighbors']:
-					if neighbor['addr'] == naddr:
-						neighbor['rssi'] = srssi
-						neighbor['nrssi'] = nrssi
-						neighbor['time'] = time()
-						nfound = True
-						break
-				if nfound:
-					break
-				elif not nfound: 
-					newneigb =  {'addr':naddr, 'rssi':srssi, 'nrssi':nrssi, 'time':time()}
-					node['neighbors'].append(newneigb)
-				break
-		if not found:
-			new = {'addr':saddr, 'rssi':0x00, 'nrssi':0x00, 'time':time(), 'neighbors':[], 'pingsuccess':[0]} # new node
-			newneigb = {'addr':naddr, 'rssi':srssi, 'nrssi':nrssi, 'time':time()}
-			new['neighbors'].append(newneigb)
-			self.nodes.append(new)
+	def getneighbor(self, node, neaddr):
+		for neighbor in node['neighbors']:
+			if neighbor['addr'] == neaddr:
+				return neighbor
+		return None
+
+	def AddNode(self, addr, rssi, nrssi=0x00):
+		node = {'addr':addr ,'rssi':rssi ,'nrssi':nrssi, 'time':time(), 'neighbors':[], 'pingsuccess':[0], 'prev':None, 'next':None, 'deployed':False}
+		self.nodes.append(node)
+		return node
+
+	def addneighbor(self, node, neaddr, nrssi, nerssi):
+		neighbor =  {'addr':neaddr, 'rssi':nrssi, 'nrssi':nerssi, 'time':time()}
+		node['neighbors'].append(neighbor)
+		return neighbor
+
+	def updatenodeinfo(self, naddr, rssi, nrssi=0x00):
+		node = self.getnode(naddr)
+		if node is None:
+			node = self.AddNode(naddr, rssi, nrssi)
+		else:
+			node['rssi'] = rssi
+			node['time'] = time()
+			if nrssi != 0x00:
+				node['nrssi'] = nrssi
+
+	def updatenodeneighborinfo(self, naddr, nrssi, neaddr, nerssi):
+		node = self.getnode(naddr)
+		if node is None:
+			node = self.AddNode(naddr, 0x00, 0x00)
+
+		neighbor = self.getneighbor(node, neaddr)
+		if neighbor is None:
+			neighbor = self.addneighbor(node, neaddr, nrssi, neaddr)
+		else:
+			neighbor['rssi'] = nrssi
+			neighbor['nrssi'] = nerssi
+			neighbor['time'] = time()
 
 	def pingmark(self, iden):
 		for packet in self.pings:
@@ -187,16 +197,15 @@ class XBee(Thread):
 			self.pings.remove(entry) 
 
 	def pingsucceed(self, packet, stat):
-		for node in self.nodes:
-			if node['addr'] == packet['addr']:
-				node['pingsuccess'].append(stat)
-				# if stat == 1:
-				# 	print("ping    fail: adr:{:02x} t:{:02.2f} id:{:02x}".format(node['addr'], time() - packet['sent'], packet['id']))
-				# if stat == 0:
-				# 	print("ping success: adr:{:02x} t:{:02.2f} id:{:02x}".format(node['addr'], time() - packet['sent'], packet['id']))
-				if len(node['pingsuccess']) > 25:
-					node['pingsuccess'].remove(node['pingsuccess'][0])
-				break
+		node = self.getnode(packet['addr'])
+		if node is not None:
+			node['pingsuccess'].append(stat)
+			# if stat == 1:
+			# 	print("ping    fail: adr:{:02x} t:{:02.2f} id:{:02x}".format(node['addr'], time() - packet['sent'], packet['id']))
+			# if stat == 0:
+			# 	print("ping success: adr:{:02x} t:{:02.2f} id:{:02x}".format(node['addr'], time() - packet['sent'], packet['id']))
+			if len(node['pingsuccess']) > 25:
+				node['pingsuccess'].remove(node['pingsuccess'][0])
 
 	# def msgsucceed(self, msg, stat):
 		# if stat == 1:
@@ -256,7 +265,7 @@ class XBee(Thread):
 			self.serial.read()
 
 	def MY(self):
-		message = self.serial.write(bytearray(b'\x7e\x00\x04\x08\x01\x4D\x59\x50'))
+		self.serial.write(bytearray(b'\x7e\x00\x04\x08\x01\x4D\x59\x50'))
 
 	def BXRSS(self):
 		self.serial.write(bytearray(b'\x7E\x00\x07\x01\x00\xff\xff\x00\x00\x10\xf0'))
@@ -270,7 +279,7 @@ class XBee(Thread):
 		self.serial.write(message)
 
 	def NeighborRSSResponse(self):
-		for node in self.nodes:
+		for node in self.nodes.elements():
 			message = bytearray(b'\x7e\x00\x08\x01\x00\xee\xee\x00\x00\x12\xee\x00')
 			message[5] = (node['addr']&0xFF00)>>8
 			message[6] = node['addr']&0xFF
@@ -279,7 +288,7 @@ class XBee(Thread):
 			self.serial.write(escape(message))
 
 	def PingNodes(self):
-		for node in self.nodes:
+		for node in self.nodes.elements():
 			fid = self.id()
 			addr = node['addr']
 			message = bytearray(b'\x7e\x00\x0B\x01\xee\x00\x01\x00\xee\x24\xee\xee\xee\x00\x00')
