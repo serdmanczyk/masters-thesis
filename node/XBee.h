@@ -8,7 +8,7 @@
 #define u_long  unsigned long
 
 #define MSG_SIZE (100) // Maximum message size
-#define MAX_NEIGHBORS (5) // Maximum neighbors to remember
+#define MAX_NEIGHBORS (2) // Maximum neighbors to remember
 #define MAX_MSGQ (20)
 
 #define RTS PIN_P54
@@ -23,7 +23,8 @@
 enum STATE {
     uninitialized,
     self_realizing,
-    nominal_op
+    rest,
+    deploy
 };
 
 typedef struct
