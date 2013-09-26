@@ -49,6 +49,12 @@ class LinkedList(object):
 	def size(self):
 		return self.n
 	
+	def list(self):
+		i = self.first
+		while i.element:
+			yield i
+			i = i.next
+
 	def elements(self):
 		i = self.first
 		while i.element:
@@ -60,7 +66,7 @@ if __name__ == "__main__":
 	
 	assert None == l.front()
 	assert None == l.back()
-	
+
 	derf = l.append(1)
 	derf = l.append(2)
 	derf = l.append(3)
