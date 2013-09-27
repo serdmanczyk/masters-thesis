@@ -22,6 +22,14 @@ class LinkedList(object):
 		self.last.previous = tmp
 		self.n += 1
 		return tmp
+
+	def front(self):
+		if self.n == 0: return None
+		return self.first
+
+	def back(self):
+		if self.n == 0: return None
+		return self.last.previous
 	
 	def popfront(self):
 		if self.n == 0: return None
@@ -29,11 +37,6 @@ class LinkedList(object):
 		self.first = self.first.next
 		self.n -= 1
 		return e
-
-	def front(self):
-		if self.n == 0: return None
-		return self.first
-
 	def popback(self):
 		if self.n == 0: return None
 		e = self.last.previous
@@ -41,10 +44,6 @@ class LinkedList(object):
 		self.last.next = Element()
 		self.n -= 1
 		return e
-
-	def back(self):
-		if self.n == 0: return None
-		return self.last.previous
 
 	def size(self):
 		return self.n

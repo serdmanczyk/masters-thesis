@@ -40,4 +40,4 @@ def checksum(buff):
 	return 0xFF - (cksm & 0xFF)
 	
 def hexformat(bytebuffer):
-	return "".join("\\x{0:02x}".format(byte) for byte in bytebuffer)
+	return "".join(" {0:02x}".format(byte) for byte in bytebuffer)

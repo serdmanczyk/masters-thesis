@@ -9,9 +9,10 @@ if __name__ == "__main__":
 
 	try:
 		while True:
-			nodes = XBee.GetNodes()
-			Xo.printnodes(nodes)
-			Xo.addoentry(nodes)			
+			if XBee.Ready():
+				nodes = XBee.GetNodes()
+				Xo.printnodes(nodes)
+				# Xo.addoentry(nodes)			
 			sleep(0.5)
 	except KeyboardInterrupt:
 		pass
@@ -19,4 +20,4 @@ if __name__ == "__main__":
 		print(traceback.format_exc())
 	
 	XBee.shutdown()
-	Xo.export()
+	# Xo.export()

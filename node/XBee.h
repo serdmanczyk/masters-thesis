@@ -8,7 +8,6 @@
 #define u_long  unsigned long
 
 #define MSG_SIZE (100) // Maximum message size
-#define MAX_NEIGHBORS (2) // Maximum neighbors to remember
 #define MAX_MSGQ (20)
 
 #define RTS PIN_P54
@@ -77,6 +76,7 @@ private:
     bool MsgRetry(u_char frameid);
     bool MsgMark(u_char frameid);
 
+    bool ResetNeighbor(neighbor *nb, u_int addr);
     bool NeighborUpdate(u_int addr, u_char rss);
     bool NeighborUpdate(u_int addr, u_char rss, u_char nrss);
 
@@ -95,7 +95,8 @@ private:
     void toggleled(int led);
 
     Queue Rx_q;
-    neighbor m_neighbors[MAX_NEIGHBORS];
+    neighbor m_fnb;
+    neighbor m_rnb;
     outgoingmsg m_outmessages[MAX_MSGQ];
     u_int m_addr;
     u_int m_faddr;

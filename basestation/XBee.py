@@ -9,25 +9,29 @@ class XBee(Thread):
 	pings = []
 	outmsgs = []
 	addr = 0
-	tick = 0
+	tick = 1
 	frameid = 0
 	rxbuffer = bytearray()
 	stop = Event()
 	currentdeployment = None
 
-	UNINT, REALZ, NORM = range(0,3) # States
-	state = UNINT
+	startup, listen, processing = range(0,3) # States
 
 	def __init__(self, serialport):
 		Thread.__init__(self)
 		self.serial = serial.Serial(port=serialport, baudrate=57600, timeout=0, rtscts=True)
 		self.serial.setRTS(True)
 		self.last = time()
+		self.starttime = time()
+		self.ready = False
 		self.start()
 
 	def shutdown(self):
 		self.stop.set()
 		self.join()
+
+	def Ready(self):
+		return self.ready
 
 	def GetNodes(self):
 		return list(self.nodes.elements())
@@ -43,21 +47,25 @@ class XBee(Thread):
 		return self.frameid
 
 	def run(self):
-		self.state = self.REALZ
+		self.state = self.startup
 		self.flushrx()
 		self.MY()
+		print("start")		
 		while not self.stop.is_set():
 			sleep(0.005) # 1ms
 			self.Rx()
 			
-			if (self.tick % 18) == 0: #100ms
-				self.msgaudit()
-				self.pingaudit()
+			if (((time() - self.starttime) > 10) and (self.state == self.listen)):
+				print("stop listening, start deploying")
+				self.state = self.processing
 
-			if (self.tick % 182) == 0: #1s
-				self.evalDeploy()
+			if self.state == self.processing:
+				if (self.tick % 18) == 0: #100ms
+					self.msgaudit()
+					self.pingaudit()
 
-			if self.state == self.NORM:
+				if (self.tick % 364) == 0: #2s
+					self.evalDeploy()
 			
 				if (self.tick % 91) == 0: #400ms
 					self.PingNodes()
@@ -67,14 +75,14 @@ class XBee(Thread):
 				if (self.tick % 109) == 0: #.6s
 					self.BXRSS()
 
-				if (self.tick % 147) == 0: #.8s
+				if (self.tick % 147) == 0: #.8se
 					self.NeighborRSSResponse()
 
-			if ((self.tick) % 182) and (self.state == self.UNINT):
+			if (((self.tick) % 182) == 0) and (self.state == self.startup):
 				self.MY()
 
-			if (self.tick % 182) == 0: #1s
-				self.tick = 0
+			if (self.tick % 364) == 0: #1s
+				self.tick = 1
 
 			self.tick = self.tick+1
 		self.serial.close()
@@ -116,6 +124,7 @@ class XBee(Thread):
 				self.ACK(addr, msgid)
 			
 			elif appid == 0x27:
+				self.DeployAck(msgid)
 				self.msgmark(msgid)
 		
 		elif rxtype == 0x89: # transmit status
@@ -131,8 +140,9 @@ class XBee(Thread):
 			cmd = ((message[2]<<8) + message[3])
 			status = message[4]
 			if cmd == ((0x4D<<8) + 0x59):
-				print("initialized")
-				self.state = self.NORM
+				print("listening")
+				self.state = self.listen
+				self.starttime = time()
 				self.addr = ((message[5]<<8) + message[6])
 
 	def getClosestNode(self):
@@ -155,42 +165,43 @@ class XBee(Thread):
 		return None
 
 	def Deploy(self, lnode):
-		first = True
+		fids = []
 		afid = self.id()
 		nfid = 0
 		dfid = self.id()
 		node = lnode.element
 
 		print("deploy:{}".format(node['addr']))
-
-		self.AssignAddress(afid, node['addr'], node['rear'], node['front'])
-		self.DeployMsg(dfid, node['addr'])
-
 		if lnode.previous is not None:
-			first = False
 			pnode = lnode.previous.element
 			pnode['rear'] = node['addr']
 			nfid = self.id()
-			self.AssignAddress(nfid, pnode['addr'], pnode['rear'], pnode['rear'])
+			self.AssignAddress(nfid, pnode['addr'], pnode['rear'], pnode['front'])
+			fids.append(nfid)
+
+		self.AssignAddress(afid, node['addr'], node['rear'], node['front'])
+		self.DeployMsg(dfid, node['addr'])
 		
-		self.currentdeployment = {'node':node, 'first':first, 'nass':False, 'ass':False, 'deployed':False, 'afid':afid, 'nfid':nfid, 'dfid':dfid}
+		fids.append(dfid)
+		fids.append(afid)
+		self.currentdeployment = {'node':node, 'deployed':False, 'fids':fids}
+		# print("cd:{}".format(self.currentdeployment['fids']))
 
 
 	def DeployAck(self, frameid):
 		if self.currentdeployment is None:return
-		if self.currentdeployment['dfid'] == frameid:
-			self.currentdeployment['deployed'] = True
-		if self.currentdeployment['afid'] == frameid:
-			self.currentdeployment['ass'] = True
+		for fid in self.currentdeployment['fids']:
+			if frameid == fid:
+				# print("remove:{}".format(frameid))
+				self.currentdeployment['fids'].remove(fid)
+				# print("cd:{}".format(self.currentdeployment['fids']))
 
-		if self.currentdeployment['first']:
-			if self.currentdeployment['ass'] and self.currentdeployment['deployed']:
+		if len(self.currentdeployment['fids']) == 0:
+				print("deployment successful")
 				self.currentdeployment['node']['deployed'] = True
-		else:
-			if self.currentdeployment['nfid'] == frameid:
-				self.currentdeployment['nass'] = True
-			if self.currentdeployment['ass'] and self.currentdeployment['deployed'] and self.currentdeployment['nass']:
-				self.currentdeployment['node']['deployed'] = True
+				if self.getFirstnonDeployed() is None:
+					self.ready = True
+				self.currentdeployment = None
 
 	def CheckNodeThreshold(self, node):
 		nrssi = node['rssi']
@@ -199,7 +210,7 @@ class XBee(Thread):
 			rss = nerssi
 		else:
 			rss = nrssi
-		# print("check threshold:{} rss:{}".format(node['addr'], rss))
+		print("check threshold:{} rss:{}".format(node['addr'], rss))
 		if rss > 50:
 			return True
 		return False
@@ -230,7 +241,7 @@ class XBee(Thread):
 	def AddNode(self, addr, rssi, nrssi=0x00):
 		node = {'addr':addr ,'rssi':rssi ,'nrssi':nrssi, 'time':time(), 'neighbors':[], 'pingsuccess':[0], 'rear':0x00, 'front':0x00, 'deployed':False}
 		ele = self.nodes.append(node)
-		# print("add node:{}".format(node['addr']))
+		print("add node:{}".format(node['addr']))
 		if ele.previous is not None:
 			node['front'] = ele.previous.element['addr']
 		return node
@@ -302,7 +313,6 @@ class XBee(Thread):
 
 	def msgmark(self, frameid):
 		# print("ack:" + str(frameid))
-		self.DeployAck(frameid)
 		for msg in self.outmsgs:
 			if msg['id'] == frameid:
 				# self.msgsucceed(msg, 0)
@@ -348,7 +358,7 @@ class XBee(Thread):
 		self.rxbuffer += buff
 
 	def flushrx(self):
-		sleep(0.100)
+		sleep(0.200)
 		for i in range(self.serial.inWaiting()):
 			self.serial.read()
 
@@ -374,6 +384,7 @@ class XBee(Thread):
 			message[10] = node['rssi']
 			message[11] = checksum(message[3:])
 			self.serial.write(escape(message))
+			# print(hexformat(message))
 
 	def PingNodes(self):
 		for node in self.nodes.elements():
@@ -452,7 +463,7 @@ class XBee(Thread):
 				msg = unescape(self.rxbuffer[start:end])
 				if checksum(msg) == self.rxbuffer[end]:
 					self.parse(msg)
-					# print(hexformat(msg))
+					# print(hexformat(self.rxbuffer[place:end]))
 				oldend = end+1
 			elif not found:
 				oldend = place + 1
