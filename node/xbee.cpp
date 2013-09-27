@@ -97,7 +97,7 @@ bool XBee::Pulse(u_long now)
    ParseRx();
 
 
-   if (m_ticks == 180) // 600ms
+   if (((m_ticks % 180) == 0) && m_state != deploy) // 600ms
       Bx();
 
    if (m_state == deploy)
@@ -133,15 +133,13 @@ bool XBee::ParseXBee(u_char *message, u_int length)
       u_char opt = message[4];
       u_char id = message[5];
 
-      if (id > 0)
+      if (id != 0)
          ACK(addr, id);
+
+      NeighborUpdate(addr, rss);
 
       switch(message[6])
       {
-         case 0x10:{ // broadcast
-            NeighborUpdate(addr, rss);
-            break;
-         }
          case 0x12:{ // rss
             u_char nrss = message[7];
 

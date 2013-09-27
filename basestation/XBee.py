@@ -145,6 +145,16 @@ class XBee(Thread):
 				self.starttime = time()
 				self.addr = ((message[5]<<8) + message[6])
 
+	def evalDeploy(self):
+		ln = self.getClosestNode()
+		if ln is not None:
+			if self.CheckNodeThreshold(ln.element):
+				self.Deploy(ln.next)
+			return
+		ln = self.getFirstnonDeployed()
+		if ln is not None:
+			self.Deploy(ln)
+
 	def getClosestNode(self):
 		for element in self.nodes.list():
 			node = element.element
@@ -163,6 +173,18 @@ class XBee(Thread):
 				# print("non-deployed:{}".format(node['addr']))
 				return element
 		return None
+
+	def CheckNodeThreshold(self, node):
+		nrssi = node['rssi']
+		nerssi = node['nrssi']
+		if nrssi > nerssi:
+			rss = nerssi
+		else:
+			rss = nrssi
+		print("check threshold:{} rss:{}".format(node['addr'], rss))
+		if rss > 70:
+			return True
+		return False
 
 	def Deploy(self, lnode):
 		fids = []
@@ -187,7 +209,6 @@ class XBee(Thread):
 		self.currentdeployment = {'node':node, 'deployed':False, 'fids':fids}
 		# print("cd:{}".format(self.currentdeployment['fids']))
 
-
 	def DeployAck(self, frameid):
 		if self.currentdeployment is None:return
 		for fid in self.currentdeployment['fids']:
@@ -202,28 +223,6 @@ class XBee(Thread):
 				if self.getFirstnonDeployed() is None:
 					self.ready = True
 				self.currentdeployment = None
-
-	def CheckNodeThreshold(self, node):
-		nrssi = node['rssi']
-		nerssi = node['nrssi']
-		if nrssi > nerssi:
-			rss = nerssi
-		else:
-			rss = nrssi
-		print("check threshold:{} rss:{}".format(node['addr'], rss))
-		if rss > 70:
-			return True
-		return False
-
-	def evalDeploy(self):
-		ln = self.getClosestNode()
-		if ln is not None:
-			if self.CheckNodeThreshold(ln.element):
-				self.Deploy(ln.next)
-			return
-		ln = self.getFirstnonDeployed()
-		if ln is not None:
-			self.Deploy(ln)
 
 
 	def getnode(self, addr):
@@ -387,23 +386,25 @@ class XBee(Thread):
 			# print(hexformat(message))
 
 	def PingNodes(self):
-		lf = self.getClosestNode()
-		if lf is None:return
-		first = lf.element
-		for node in self.nodes.elements():
-			if node['deployed']:
-				fid = self.id()
-				addr = self.nodes.front().element['addr']
-				message = bytearray(b'\x7e\x00\x0B\x01\xee\xee\xee\x00\xee\x24\xee\xee\xee\x00\x00')
-				message[4] = fid # frame id
-				message[5] = (first['addr']&0xFF00)>>8
-				message[6] = first['addr']&0xFF
-				message[8] = fid     # id (for ack)
-				message[10] = fid    # ping id
-				message[11] = (addr&0xFF00)>>8
-				message[12] = addr&0xFF
-				message[14] = checksum(message[3:])
-				self.AddPing(message, addr, fid)
+		if self.nodes.front() is None: return
+		if (self.getClosestNode() is None) and (self.nodes.back() is None):return
+		if self.getClosestNode() is None:
+			closest = self.nodes.back().element
+		else:
+			closest = self.getClosestNode().element
+		furthest = self.nodes.front().element
+		if furthest['deployed'] and closest['deployed']:
+			fid = self.id()
+			message = bytearray(b'\x7e\x00\x0B\x01\xee\xee\xee\x00\xee\x24\xee\xee\xee\x00\x00')
+			message[4] = fid # frame id
+			message[5] = (furthest['addr']&0xFF00)>>8
+			message[6] = furthest['addr']&0xFF
+			message[8] = fid     # id (for ack)
+			message[10] = fid    # ping id
+			message[11] = (closest['addr']&0xFF00)>>8
+			message[12] = closest['addr']&0xFF
+			message[14] = checksum(message[3:])
+			self.AddPing(message, furthest['addr'], fid)
 
 	def AddPing(self, message, addr, fid):
 		ping = {

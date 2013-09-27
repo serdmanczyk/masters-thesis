@@ -37,6 +37,7 @@ class LinkedList(object):
 		self.first = self.first.next
 		self.n -= 1
 		return e
+		
 	def popback(self):
 		if self.n == 0: return None
 		e = self.last.previous
