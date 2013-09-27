@@ -211,7 +211,7 @@ class XBee(Thread):
 		else:
 			rss = nrssi
 		print("check threshold:{} rss:{}".format(node['addr'], rss))
-		if rss > 50:
+		if rss > 70:
 			return True
 		return False
 
@@ -352,7 +352,7 @@ class XBee(Thread):
 		}
 		self.outmsgs.append(new)
 		if send:
-			self.serial.write(escape(msg['msg']))
+			self.serial.write(escape(new['msg']))
 
 	def inject(self, buff):
 		self.rxbuffer += buff
@@ -387,12 +387,17 @@ class XBee(Thread):
 			# print(hexformat(message))
 
 	def PingNodes(self):
+		lf = self.getClosestNode()
+		if lf is None:return
+		first = lf.element
 		for node in self.nodes.elements():
 			if node['deployed']:
 				fid = self.id()
 				addr = self.nodes.front().element['addr']
-				message = bytearray(b'\x7e\x00\x0B\x01\xee\x00\x01\x00\xee\x24\xee\xee\xee\x00\x00')
+				message = bytearray(b'\x7e\x00\x0B\x01\xee\xee\xee\x00\xee\x24\xee\xee\xee\x00\x00')
 				message[4] = fid # frame id
+				message[5] = (first['addr']&0xFF00)>>8
+				message[6] = first['addr']&0xFF
 				message[8] = fid     # id (for ack)
 				message[10] = fid    # ping id
 				message[11] = (addr&0xFF00)>>8
@@ -426,7 +431,7 @@ class XBee(Thread):
 		message[12] = (front&0xFF00)>>8
 		message[13] = front&0xFF
 		message[14] = checksum(message[3:])
-		self.serial.write(escape(message))
+		self.buffout(message, addr, fid)
 		# print(hexformat(message))
 
 	def DeployMsg(self, fid, addr):
@@ -436,7 +441,7 @@ class XBee(Thread):
 		message[6] = addr&0xFF
 		message[8] = fid
 		message[10] = checksum(message[3:])
-		self.serial.write(escape(message))
+		self.buffout(message, addr, fid)
 		# print(hexformat(message))
 
 	def parseRx(self):
