@@ -5,15 +5,16 @@ from dllist import LinkedList
 from time import sleep, time
 
 class XBee(Thread):
-	nodes = LinkedList()
+	nodes = []
 	pings = []
 	outmsgs = []
+	pingsuccess = []
 	addr = 0
 	tick = 1
 	frameid = 0
 	rxbuffer = bytearray()
 	stop = Event()
-	currentdeployment = None
+	currdeploy = None
 
 	startup, listen, processing = range(0,3) # States
 
@@ -33,8 +34,16 @@ class XBee(Thread):
 	def Ready(self):
 		return self.ready
 
-	def GetNodes(self):
-		return list(self.nodes.elements())
+	def OutDebug(self):
+		now = time()
+		print("success rate:", 100-(100*(sum(self.pingsuccess) / len(self.pingsuccess))))
+		for node in self.nodes:
+			if node['deployed']:
+				print("Node:{} RSSI:{} NRSSI:{} age:{}".format(node['addr'], node['rssi'], node['nrssi'], 'y' if (now-node['time']) > 1.5 else 'n'))
+				print("\tFront:{}  RSSI:{} NRSSI:{} age:{}".format(node['faddr'], node['frssi'], node['fnrssi'],  'y' if (now-node['nt']) > 3 else 'n'))
+				print("\tRear:{}   RSSI:{} NRSSI:{} age:{}".format(node['raddr'], node['rrssi'], node['rnrssi'],  'y' if (now-node['nt']) > 3 else 'n'))
+		print("time:{:.2f}\n".format(now-self.start))
+
 
 	def id(self):
 		self.frameid = self.frameid + 1
@@ -96,32 +105,35 @@ class XBee(Thread):
 	def parse(self, message):
 		rxtype = message[0]
 		if rxtype == 0x81: # received message
-			addr = (message[1]<<8) + message[2]
+			naddr = (message[1]<<8) + message[2]
 			rssi = message[3]
 			# options = message[4]
 			msgid = message[5]
 			appid = message[6]
 
-			if appid == 0x10:
-				self.updatenodeinfo(addr, rssi)
+			self.updatenodeinfo(addr, rssi)
+
+			if msgid != 0:
+				self.ACK(naddr, msgid)
 			
 			elif appid == 0x12:
 				nrssi = message[7]
-				self.updatenodeinfo(addr, rssi, nrssi)
+				self.updatenodeinfo(naddr, rssi, nrssi)
 			
 			elif appid == 0x22:
-				naddr = (message[7]<<8) + message[8]
-				nrssi = message[9]
-				neaddr = (message[10]<<8) + message[11]
-				nerssi = message[12]
-				self.updatenodeneighborinfo(naddr, nrssi, neaddr, nerssi)
-				self.ACK(addr, msgid)
+				srcaddr = (message[7]<<8) + message[8]
+				faddr = (message[9]<<8) + message[10]
+				frssi = message[11]
+				fnrssi = message[12]
+				raddr = (message[13]<<8) + message[14]
+				rrssi = message[15]
+				rnrssi = message[16]
+				self.updatenodeneighborinfo(naddr, faddr, frssi, fnrssi, raddr, rrssi, rnrssi)
 			
 			elif appid == 0x26:
 				pid = message[7]
 				# nodeaddr = (message[8]<<8) + message[9]
 				self.pingmark(pid)
-				self.ACK(addr, msgid)
 			
 			elif appid == 0x27:
 				self.DeployAck(msgid)
@@ -145,33 +157,21 @@ class XBee(Thread):
 				self.starttime = time()
 				self.addr = ((message[5]<<8) + message[6])
 
-	def evalDeploy(self):
-		ln = self.getClosestNode()
-		if ln is not None:
-			if self.CheckNodeThreshold(ln.element):
-				self.Deploy(ln.next)
-			return
-		ln = self.getFirstnonDeployed()
-		if ln is not None:
-			self.Deploy(ln)
 
-	def getClosestNode(self):
-		for element in self.nodes.list():
-			node = element.element
+	def getClosestDeployed(self):
+		rnode = None
+		for node in self.nodes():
 			if not node['deployed']:
-				if element.previous is not None:
-					# print("closest:{}".format(element.previous.element['addr']))
-					return element.previous
-				else:
-					return None
-		return None
+				break
+			else:
+				rnode = node
+		return rnode
 
-	def getFirstnonDeployed(self):
-		for element in self.nodes.list():
-			node = element.element
+	def getNextnonDeployed(self):
+		for node in self.nodes():
 			if not node['deployed']:
 				# print("non-deployed:{}".format(node['addr']))
-				return element
+				return node
 		return None
 
 	def CheckNodeThreshold(self, node):
@@ -186,69 +186,82 @@ class XBee(Thread):
 			return True
 		return False
 
-	def Deploy(self, lnode):
-		fids = []
-		afid = self.id()
-		nfid = 0
-		dfid = self.id()
-		node = lnode.element
+	def evalDeploy(self):
+		if self.currdeploy is not None:
+			self.doNextDeploymentStep()
+			return
+		node = self.getClosestNode()
+		if node is not None:
+			if self.CheckNodeThreshold(node):
+				rear = self.getnode(node['raddr'])
+				if rear is not None:
+					self.Deploy(node['raddr'])
+			return
+		node = self.getFirstnonDeployed()
+		if node is not None:
+			self.Deploy(node['addr'])
+
+	def Deploy(self, node):
+		steplist = []
 
 		print("deploy:{}".format(node['addr']))
-		if lnode.previous is not None:
-			pnode = lnode.previous.element
-			pnode['rear'] = node['addr']
-			nfid = self.id()
-			self.AssignAddress(nfid, pnode['addr'], pnode['rear'], pnode['front'])
-			fids.append(nfid)
+		front = self.getnode(node['faddr'])
+		if rear is not None:
+			front['raddr'] = node['addr']
+			front['rrssi'] = 0x00
+			front['rnrssi'] = 0x00
+			steplist.append('step':'assign', 'fid':self.id(), 'node':rear)
 
-		self.AssignAddress(afid, node['addr'], node['rear'], node['front'])
-		self.DeployMsg(dfid, node['addr'])
+		steplist.append('step':'assign', 'fid':self.id(), 'node':node)
+		steplist.append('step':'deploy', 'fid':self.id(), 'node':node)
 		
-		fids.append(dfid)
-		fids.append(afid)
-		self.currentdeployment = {'node':node, 'deployed':False, 'fids':fids}
-		# print("cd:{}".format(self.currentdeployment['fids']))
+		self.currdeploy = {'node':node, 'start':time(), steps':steplist'}
+		self.doNextDeploymentStep()
+
+	def doNextDeploymentStep(self):
+		if self.currdeploy is None:return
+		if (time() - self.currdeploy['start']) > 5:
+			self.currdeploy = None
+			return
+		if len(self.currdeploy['steps']) == 0:
+			self.currdeploy = None
+			return
+		nextstep = self.currdeploy['steps'][0]
+		if nextstep['name'] == 'assign':
+			self.AssignAddress(nextstep['fid'], nextstep['node'])
+		if nextstep['name'] == 'deploy':
+			self.DeployMsg(nextstep['fid'], nextstep['node'])
 
 	def DeployAck(self, frameid):
-		if self.currentdeployment is None:return
-		for fid in self.currentdeployment['fids']:
-			if frameid == fid:
-				# print("remove:{}".format(frameid))
-				self.currentdeployment['fids'].remove(fid)
-				# print("cd:{}".format(self.currentdeployment['fids']))
-
-		if len(self.currentdeployment['fids']) == 0:
-				print("deployment successful")
-				self.currentdeployment['node']['deployed'] = True
-				if self.getFirstnonDeployed() is None:
-					self.ready = True
-				self.currentdeployment = None
+		if self.currdeploy is None:return
+		for step in self.currdeploy['steps']:
+			if frameid == step['fid']:
+				# print("success:{}".format(step['name']))
+				self.currdeploy['steps'].remove(step)
+		if len(self.currdeploy['steps']) != 0:
+			self.doNextDeploymentStep()
+		else:
+			print("deployment successful")
+			self.currdeploy['node']['deployed'] = True
+			if self.getFirstnonDeployed() is None:
+				self.ready = True
+			self.currdeploy = None
 
 
 	def getnode(self, addr):
-		for node in self.nodes.elements():
+		for node in self.nodes():
 			if node['addr'] == addr:
 				return node
 		return None
 
-	def getneighbor(self, node, neaddr):
-		for neighbor in node['neighbors']:
-			if neighbor['addr'] == neaddr:
-				return neighbor
-		return None
-
 	def AddNode(self, addr, rssi, nrssi=0x00):
-		node = {'addr':addr ,'rssi':rssi ,'nrssi':nrssi, 'time':time(), 'neighbors':[], 'pingsuccess':[0], 'rear':0x00, 'front':0x00, 'deployed':False}
-		ele = self.nodes.append(node)
+		node = {'addr':addr ,'rssi':rssi ,'nrssi':nrssi, 'time':time(), 'deployed':False,
+			'raddr':0x00, 'rrssi':0x00, 'rsnrssi':0x00, 
+			'faddr':0x7E, 'frssi':0x00, 'frnrssi':0x00}
 		print("add node:{}".format(node['addr']))
-		if ele.previous is not None:
-			node['front'] = ele.previous.element['addr']
+		if len(self.nodes)>0:
+			node['faddr'] = self.nodes[-1]['addr']
 		return node
-
-	def addneighbor(self, node, neaddr, nrssi, nerssi):
-		neighbor =  {'addr':neaddr, 'rssi':nrssi, 'nrssi':nerssi, 'time':time()}
-		node['neighbors'].append(neighbor)
-		return neighbor
 
 	def updatenodeinfo(self, naddr, rssi, nrssi=0x00):
 		node = self.getnode(naddr)
@@ -260,18 +273,34 @@ class XBee(Thread):
 			if nrssi != 0x00:
 				node['nrssi'] = nrssi
 
-	def updatenodeneighborinfo(self, naddr, nrssi, neaddr, nerssi):
+	def RemoveLost(self, rear, front):
+		# It seems we've lost one or more nodes, we'll need
+		# to purge our list to match our new node situation
+		lostnodes = []
+		print("remove lost:{}:{}".format(rear, front))
+
+	def updatenodeneighborinfo(self, naddr, faddr, frssi, rnrssi, raddr, rrssi, rnrssi):
 		node = self.getnode(naddr)
 		if node is None:
-			node = self.AddNode(naddr, 0x00, 0x00)
+			# we haven't deployed this node.  We should have heard a broadcast first
+			# and added it, ignore this scenario.
+			return
 
-		neighbor = self.getneighbor(node, neaddr)
-		if neighbor is None:
-			neighbor = self.addneighbor(node, neaddr, nrssi, neaddr)
-		else:
-			neighbor['rssi'] = nrssi
-			neighbor['nrssi'] = nerssi
-			neighbor['time'] = time()
+		if node['raddr'] != nraddr:
+			print("something's wrong here")
+			# we should reconnect our list, but we need to know the start.
+			# Our nodes should be re-assembled now, so we'll wait for the 
+			# rear neighbor to send its report and let the next 'if' re-build 
+			# our list when that message arrives.
+			return
+
+		if node['faddr'] != nfaddr:
+			self.RemoveLost(node['addr'], faddr)
+
+		node['frssi'] = frssi
+		node['fnrssi'] = fnrssi
+		node['rrssi'] = rrssi
+		node['rnrssi'] = rnrssi
 
 	def pingmark(self, iden):
 		for packet in self.pings:
@@ -296,13 +325,13 @@ class XBee(Thread):
 	def pingsucceed(self, packet, stat):
 		node = self.getnode(packet['addr'])
 		if node is not None:
-			node['pingsuccess'].append(stat)
+			self.pingsuccess.append(stat)
 			# if stat == 1:
 			# 	print("ping    fail: adr:{:02x} t:{:02.2f} id:{:02x}".format(node['addr'], time() - packet['sent'], packet['id']))
 			# if stat == 0:
 			# 	print("ping success: adr:{:02x} t:{:02.2f} id:{:02x}".format(node['addr'], time() - packet['sent'], packet['id']))
-			if len(node['pingsuccess']) > 25:
-				node['pingsuccess'].remove(node['pingsuccess'][0])
+			if len(self.pingsuccess) > 25:
+				self.pingsuccess.remove(self.pingsuccess[0])
 
 	# def msgsucceed(self, msg, stat):
 		# if stat == 1:
@@ -353,8 +382,8 @@ class XBee(Thread):
 		if send:
 			self.serial.write(escape(new['msg']))
 
-	def inject(self, buff):
-		self.rxbuffer += buff
+	# def inject(self, buff):
+	# 	self.rxbuffer += buff
 
 	def flushrx(self):
 		sleep(0.200)
@@ -365,7 +394,7 @@ class XBee(Thread):
 		self.serial.write(bytearray(b'\x7e\x00\x04\x08\x01\x4D\x59\x50'))
 
 	def BXRSS(self):
-		self.serial.write(bytearray(b'\x7E\x00\x07\x01\x00\xff\xff\x00\x00\x10\xf0'))
+		self.serial.write(bytearray(b'\x7e\x00\x07\x01\x00\xff\xff\x00\x00\x10\xf0'))
 
 	def ACK(self, addr, fid):
 		message = bytearray(b'\x7e\x00\x07\x01\x00\xee\xee\x00\xee\x27\x00')
@@ -376,23 +405,20 @@ class XBee(Thread):
 		self.serial.write(message)
 
 	def NeighborRSSResponse(self):
-		for node in self.nodes.elements():
+		first = self.getClosestDeployed()
+		if first is not None:
 			message = bytearray(b'\x7e\x00\x08\x01\x00\xee\xee\x00\x00\x12\xee\x00')
-			message[5] = (node['addr']&0xFF00)>>8
-			message[6] = node['addr']&0xFF
-			message[10] = node['rssi']
+			message[5] = (first['addr']&0xFF00)>>8
+			message[6] = first['addr']&0xFF
+			message[10] = first['rssi']
 			message[11] = checksum(message[3:])
 			self.serial.write(escape(message))
 			# print(hexformat(message))
 
 	def PingNodes(self):
-		if self.nodes.front() is None: return
-		if (self.getClosestNode() is None) and (self.nodes.back() is None):return
-		if self.getClosestNode() is None:
-			closest = self.nodes.back().element
-		else:
-			closest = self.getClosestNode().element
-		furthest = self.nodes.front().element
+		if len(self.nodes) == 0:return
+		first = self.getClosestDeployed()
+		furthest = self.nodes.front()
 		if furthest['deployed'] and closest['deployed']:
 			fid = self.id()
 			message = bytearray(b'\x7e\x00\x0B\x01\xee\xee\xee\x00\xee\x24\xee\xee\xee\x00\x00')
@@ -421,25 +447,25 @@ class XBee(Thread):
 		self.pings.append(ping)
 		self.buffout(message, addr, fid, False)
 
-	def AssignAddress(self, fid, addr, rear, front):
+	def AssignAddress(self, fid, node):
 		message = bytearray(b'\x7e\x00\x0B\x01\xee\xee\xee\x00\xee\x28\xee\xee\xee\xee\x00')
 		message[4] = fid
-		message[5] = (addr&0xFF00)>>8
-		message[6] = addr&0xFF
+		message[5] = (node['addr']&0xFF00)>>8
+		message[6] = node['addr']&0xFF
 		message[8] = fid
-		message[10] = (rear&0xFF00)>>8
-		message[11] = rear&0xFF
-		message[12] = (front&0xFF00)>>8
-		message[13] = front&0xFF
+		message[10] = (node['raddr']&0xFF00)>>8
+		message[11] = node['raddr']&0xFF
+		message[12] = (node['faddr']&0xFF00)>>8
+		message[13] = node['faddr']&0xFF
 		message[14] = checksum(message[3:])
 		self.buffout(message, addr, fid)
 		# print(hexformat(message))
 
-	def DeployMsg(self, fid, addr):
+	def DeployMsg(self, fid, node):
 		message = bytearray(b'\x7e\x00\x07\x01\xee\xee\xee\x00\xee\x30\x00')
 		message[4] = fid
-		message[5] = (addr&0xFF00)>>8
-		message[6] = addr&0xFF
+		message[5] = (node['addr']&0xFF00)>>8
+		message[6] = node['addr']&0xFF
 		message[8] = fid
 		message[10] = checksum(message[3:])
 		self.buffout(message, addr, fid)

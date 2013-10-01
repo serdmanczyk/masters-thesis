@@ -147,12 +147,7 @@ bool XBee::ParseXBee(u_char *message, u_int length)
             break;
          }
          case 0x22:{ // rss report
-            u_int saddr = wd(message[7],message[8]);
-            u_char srss = message[9];  
-            u_int naddr = wd(message[10],message[11]);
-            u_char nrss = message[12];
-
-            FwdRSSReport(saddr, srss, naddr, nrss);
+            FwdRSSReport(&message[7]);
             break;
          }
          case 0x24:{ // outward ping
@@ -280,57 +275,45 @@ void XBee::NRSS()
 
 bool XBee::RSSReport()
 {
-   neighbor *nodes[2];
-
-   nodes[0] = &m_fnb;
-   nodes[1] = &m_rnb;
-
-   for (u_char i=0;i<2;i++)
-   {
-      if (nodes[i]->addr != 0xFFFF)
-      {
-         u_char msg[17];
-         u_char rss = navg(nodes[i]->rssi, nodes[i]->rlen);
-         u_char nrss = navg(nodes[i]->nrssi, nodes[i]->rlen);
-         u_char frid = fid();
-
-         memcpy(msg, "\x7E\x00\x0E\x01\xFF\xFF\xFF\x00\xFF\x22\xFF\xFF\xFF\xFF\xFF\xFF\x00", 17);
-         msg[4] = frid; // frame id
-         msg[5] = hb(m_rnb.addr); // address high byte
-         msg[6] = lb(m_rnb.addr); // address low byte
-         msg[8] = frid;
-         msg[10] = hb(m_addr); // source address high
-         msg[11] = lb(m_addr); // source address low
-         msg[12] = rss; // source rss
-         msg[13] = hb(nodes[i]->addr); // source neighbor address high
-         msg[14] = lb(nodes[i]->addr); // source neighbor address low
-         msg[15] = nrss; // source neighbor rss    
-
-         MsgQueue(msg, 17, frid);
-      }
-   }
-
-   return true;
-}
-
-bool XBee::FwdRSSReport(u_int saddr, u_char srss, u_int naddr, u_char nrss)
-{
-   u_char msg[17];
+   u_char msg[20];
+   u_char rss = navg(nodes[i]->rssi, nodes[i]->rlen);
+   u_char nrss = navg(nodes[i]->nrssi, nodes[i]->rlen);
    u_char frid = fid();
 
-   memcpy(msg, "\x7E\x00\x0E\x01\xFF\xFF\xFF\x00\xFF\x22\xFF\xFF\xFF\xFF\xFF\xFF", 17);
+   memcpy(msg, "\x7E\x00\x12\x01\xFF\xFF\xFF\x00\xFF\x22\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x00", 21);
    msg[4] = frid; // frame id
    msg[5] = hb(m_rnb.addr); // address high byte
    msg[6] = lb(m_rnb.addr); // address low byte
    msg[8] = frid;
-   msg[10] = hb(saddr); // source address high
-   msg[11] = lb(saddr); // source address low
-   msg[12] = srss; // source rss
-   msg[13] = hb(naddr); // source neighbor address high
-   msg[14] = lb(naddr); // source neighbor address low
-   msg[15] = nrss; // source neighbor rss
+   msg[10] = hb(m_addr); // source address high
+   msg[11] = lb(m_addr); // source address low
+   msg[12] = hb(m_fnb.addr); 
+   msg[13] = lb(m_fnb.addr); 
+   msg[14] = navg(m_fnb.rssi, m_fnb.rlen);
+   msg[15] = navg(m_fnb.nrssi, m_fnb.rlen);
+   msg[16] = hb(m_rnb.addr); 
+   msg[17] = lb(m_rnb.addr); 
+   msg[18] = navg(m_rnb.rssi, m_rnb.rlen);
+   msg[19] = navg(m_rnb.nrssi, m_rnb.rlen);
 
-   MsgQueue(msg, 17, frid);
+   MsgQueue(msg, 21, frid);
+
+   return true;
+}
+
+bool XBee::FwdRSSReport(u_char *data)
+{
+   u_char msg[20];
+   u_char frid = fid();
+
+   memcpy(msg, "\x7E\x00\x12\x01\xFF\xFF\xFF\x00\xFF\x22\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x00", 21);
+   msg[4] = frid; // frame id
+   msg[5] = hb(m_rnb.addr); // address high byte
+   msg[6] = lb(m_rnb.addr); // address low byte
+   msg[8] = frid;
+   memcpy(&msg[10], data, 10);
+
+   MsgQueue(msg, 21, frid);
 
    return true;
 }
