@@ -418,7 +418,7 @@ class XBee(Thread):
 	def PingNodes(self):
 		if len(self.nodes) == 0:return
 		first = self.getClosestDeployed()
-		furthest = self.nodes.front()
+		furthest = self.nodes[-1]
 		if furthest['deployed'] and closest['deployed']:
 			fid = self.id()
 			message = bytearray(b'\x7e\x00\x0B\x01\xee\xee\xee\x00\xee\x24\xee\xee\xee\x00\x00')

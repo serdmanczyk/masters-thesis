@@ -5,12 +5,9 @@
 
 XBee::XBee()
 : m_addr(0x00),
-m_faddr(0x00),
-m_raddr(0x00),
 m_frameid(0),
 m_ticks(0),
 m_now(0),
-m_currled(0),
 m_CtrlIn(90),  // Stay still
 m_state(uninitialized)
 {
@@ -19,11 +16,11 @@ m_state(uninitialized)
 
    for (u_int i=0;i<MAX_MSGQ;i++)
    {
-      memset(m_outmessages[i].message, 0, MSG_SIZE);
-      m_outmessages[i].len = 0;
-      m_outmessages[i].frameid = 0;
-      m_outmessages[i].senttime = 0;
-      m_outmessages[i].active = false;
+      memset(m_outmsgs[i].message, 0, MSG_SIZE);
+      m_outmsgs[i].len = 0;
+      m_outmsgs[i].frameid = 0;
+      m_outmsgs[i].senttime = 0;
+      m_outmsgs[i].active = false;
    }
 }
 
@@ -275,9 +272,7 @@ void XBee::NRSS()
 
 bool XBee::RSSReport()
 {
-   u_char msg[20];
-   u_char rss = navg(nodes[i]->rssi, nodes[i]->rlen);
-   u_char nrss = navg(nodes[i]->nrssi, nodes[i]->rlen);
+   u_char msg[21];
    u_char frid = fid();
 
    memcpy(msg, "\x7E\x00\x12\x01\xFF\xFF\xFF\x00\xFF\x22\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x00", 21);
@@ -303,7 +298,7 @@ bool XBee::RSSReport()
 
 bool XBee::FwdRSSReport(u_char *data)
 {
-   u_char msg[20];
+   u_char msg[21];
    u_char frid = fid();
 
    memcpy(msg, "\x7E\x00\x12\x01\xFF\xFF\xFF\x00\xFF\x22\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x00", 21);
@@ -357,7 +352,7 @@ bool XBee::PingIn(u_char pid, u_int naddr)
 }
 
 
-bool XBee::ResetNeighbor(neighbor *nb, u_int addr)
+void XBee::ResetNeighbor(neighbor *nb, u_int addr)
 {
    nb->addr = addr;
    nb->rss = 0x00;
@@ -419,7 +414,7 @@ bool XBee::MsgQueue(u_char*s, int len, u_char frameid)
 
    for (u_int i=0;i<MAX_MSGQ;i++)
    {
-      if (!m_outmessages[i].active) 
+      if (!m_outmsgs[i].active) 
       {
          id = i;
          found = true;
@@ -427,12 +422,12 @@ bool XBee::MsgQueue(u_char*s, int len, u_char frameid)
       }
    }
 
-   memcpy(m_outmessages[id].message, s, len);
-   m_outmessages[id].len = len;
-   m_outmessages[id].frameid = frameid;
-   m_outmessages[id].senttime = m_now;
-   m_outmessages[id].active = true;
-   m_outmessages[id].retries = 0;
+   memcpy(m_outmsgs[id].message, s, len);
+   m_outmsgs[id].len = len;
+   m_outmsgs[id].frameid = frameid;
+   m_outmsgs[id].senttime = m_now;
+   m_outmsgs[id].active = true;
+   m_outmsgs[id].retries = 0;
 
    Tx(s, len);
 
@@ -445,13 +440,13 @@ bool XBee::MsgMark(u_char frameid)
 
    for (u_char i=0;i<MAX_MSGQ;i++)
    {
-      if (m_outmessages[i].frameid == frameid) 
+      if (m_outmsgs[i].frameid == frameid) 
       {
-         memset(m_outmessages[i].message, 0, MSG_SIZE);
-         m_outmessages[i].frameid = 0;
-         m_outmessages[i].senttime = 0;
-         m_outmessages[i].retries = 0;
-         m_outmessages[i].active = false;
+         memset(m_outmsgs[i].message, 0, MSG_SIZE);
+         m_outmsgs[i].frameid = 0;
+         m_outmsgs[i].senttime = 0;
+         m_outmsgs[i].retries = 0;
+         m_outmsgs[i].active = false;
          marked = true;
          break;
       }
@@ -465,11 +460,11 @@ bool XBee::MsgRetry(u_char frameid)
    bool marked = false;
    for (u_char i=0;i<MAX_MSGQ;i++)
    {
-      if (m_outmessages[i].frameid == frameid)
+      if (m_outmsgs[i].frameid == frameid)
       {
-         Tx(m_outmessages[i].message, m_outmessages[i].len);
-         m_outmessages[i].retries++;
-         m_outmessages[i].senttime = m_now;
+         Tx(m_outmsgs[i].message, m_outmsgs[i].len);
+         m_outmsgs[i].retries++;
+         m_outmsgs[i].senttime = m_now;
          marked = true;
       }
    }
@@ -481,23 +476,23 @@ bool XBee::MsgAudit()
 {
    for (u_char i=0;i<MAX_MSGQ;i++)
    {
-      if (m_outmessages[i].active)
+      if (m_outmsgs[i].active)
       {
-         if ((m_now - m_outmessages[i].senttime) > 100)
+         if ((m_now - m_outmsgs[i].senttime) > 100)
          {
-            Tx(m_outmessages[i].message, m_outmessages[i].len);
-            m_outmessages[i].retries++;
-            m_outmessages[i].senttime = m_now;
+            Tx(m_outmsgs[i].message, m_outmsgs[i].len);
+            m_outmsgs[i].retries++;
+            m_outmsgs[i].senttime = m_now;
          }
 
-         if (m_outmessages[i].retries > 3)
+         if (m_outmsgs[i].retries > 3)
          {
-            memset(m_outmessages[i].message, 0, MSG_SIZE);
-            m_outmessages[i].len = 0;
-            m_outmessages[i].frameid = 0;
-            m_outmessages[i].senttime = 0;
-            m_outmessages[i].retries = 0;
-            m_outmessages[i].active = false;
+            memset(m_outmsgs[i].message, 0, MSG_SIZE);
+            m_outmsgs[i].len = 0;
+            m_outmsgs[i].frameid = 0;
+            m_outmsgs[i].senttime = 0;
+            m_outmsgs[i].retries = 0;
+            m_outmsgs[i].active = false;
          }
       }
    }

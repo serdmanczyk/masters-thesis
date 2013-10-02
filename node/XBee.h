@@ -7,7 +7,7 @@
 #define u_int unsigned int
 #define u_long  unsigned long
 
-#define MSG_SIZE (100) // Maximum message size
+#define MSG_SIZE (35) // Maximum message size
 #define MAX_MSGQ (20)
 
 #define RTS PIN_P54
@@ -54,7 +54,7 @@ public:
     void Init();
     void Rx();
     void Tx(u_char *msg, u_int len);
-    bool Pulse(unsigned long now);
+    bool Pulse(u_long now);
     
 private:
     bool ParseXBee(u_char *message, u_int length);
@@ -65,7 +65,7 @@ private:
     void Bx();
     void NRSS();
     bool RSSReport();
-    bool FwdRSSReport(u_int saddr, u_char srss, u_int naddr, u_char nrss);
+    bool FwdRSSReport(u_char *data);
     void ACK(u_int addr, u_char sfid);
 
     bool PingOut(u_char pid, u_int naddr);
@@ -76,7 +76,7 @@ private:
     bool MsgRetry(u_char frameid);
     bool MsgMark(u_char frameid);
 
-    bool ResetNeighbor(neighbor *nb, u_int addr);
+    void ResetNeighbor(neighbor *nb, u_int addr);
     bool NeighborUpdate(u_int addr, u_char rss);
     bool NeighborUpdate(u_int addr, u_char rss, u_char nrss);
 
@@ -90,22 +90,18 @@ private:
     u_char fid();
 	u_int  escape(u_char *msg, u_int len);
 	u_char checksum(u_char *msg, u_int len);
-
 	
     void toggleled(int led);
 
     Queue Rx_q;
+    outgoingmsg m_outmsgs[MAX_MSGQ];
     neighbor m_fnb;
     neighbor m_rnb;
-    outgoingmsg m_outmessages[MAX_MSGQ];
+    STATE   m_state;
     u_int m_addr;
-    u_int m_faddr;
-    u_int m_raddr;
     u_char m_frameid;
-    u_char m_currled;
     u_int m_ticks;
     u_long m_now;
     int m_CtrlIn;
-    STATE   m_state;
 };
 #endif
