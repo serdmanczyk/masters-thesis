@@ -169,12 +169,13 @@ bool XBee::ParseXBee(u_char *message, u_int length)
             break;
          }
          case 0x27:{ // acknowledge message
-            MsgMark(id);
+            u_char appmsid = message[7];
+            MsgMark(appmsid);
             break;
          }
          case 0x28:{ // address assign
-            u_int faddr = wd(message[7],message[8]);
-            u_int raddr = wd(message[9],message[10]);
+            u_int raddr = wd(message[7],message[8]);
+            u_int faddr = wd(message[9],message[10]);
 
             ResetNeighbor(&m_fnb, faddr);
             ResetNeighbor(&m_rnb, raddr);
@@ -238,14 +239,14 @@ void XBee::Bx(){Serial.write((u_char *)"\x7E\x00\x07\x01\x00\xFF\xFF\x00\x00\x10
 
 void XBee::ACK(u_int addr, u_char sfid)
 {
-   u_char msg[10];
+   u_char msg[11];
 
-   memcpy(msg, "\x7E\x00\x07\x01\x00\xFF\xFF\x00\xFF\x27", 10);
+   memcpy(msg, "\x7E\x00\x08\x01\x00\xFF\xFF\x00\x00\x27\x00", 11);
    msg[5] = hb(addr); // neighbor address high
    msg[6] = lb(addr); // neighbor address low
-   msg[8] = sfid;  // frame id (for ack)
+   msg[10] = sfid;  // frame id (for ack)
 
-   Tx(msg, 10);
+   Tx(msg, 11);
 }
 
 void XBee::NRSS()
