@@ -7,7 +7,7 @@ class XBee(Thread):
 	nodes = []
 	pings = []
 	outmsgs = []
-	pingsuccess = []
+	pingsuccess = [0]
 	addr = 0
 	tick = 1
 	frameid = 0
@@ -38,12 +38,12 @@ class XBee(Thread):
 		for node in self.nodes:
 			if node['deployed']:
 				nodes = True
-				print("Node:{} RSSI:{} NRSSI:{} age:{}".format(node['addr'], node['rssi'], node['nrssi'], 'y' if (now-node['time']) > 1.5 else 'n'))
+				print("Node:{} RSSI:{:.0f} NRSSI:{:.0f} age:{}".format(node['addr'], sum(node['rssi']) / len(node['rssi']), sum(node['nrssi']) / len(node['nrssi']), 'y' if (now-node['time']) > 1.5 else 'n'))
 				if node['faddr'] != 0x007E:
 					print("\tFront:{}  RSSI:{} NRSSI:{} age:{}".format(node['faddr'], node['frssi'], node['fnrssi'],  'y' if (now-node['nt']) > 3 else 'n'))
 				print("\tRear:{}   RSSI:{} NRSSI:{} age:{}".format(node['raddr'], node['rrssi'], node['rnrssi'],  'y' if (now-node['nt']) > 3 else 'n'))
 		if nodes:
-			print("success rate:", 100-(100*(sum(self.pingsuccess) / len(self.pingsuccess))))
+			print("success rate: {:.2f}".format(100-(100*(sum(self.pingsuccess) / len(self.pingsuccess)))))
 			print("time:{:.2f}\n".format(now-self.starttime))
 
 
@@ -179,8 +179,9 @@ class XBee(Thread):
 		return None
 
 	def CheckNodeThreshold(self, node):
-		nrssi = node['rssi']
-		nerssi = node['nrssi']
+		nrssi = sum(node['rssi']) / len(node['rssi'])
+
+		nerssi = sum(node['nrssi']) / len(node['nrssi'])
 		if nrssi > nerssi:
 			rss = nerssi
 		else:
@@ -263,7 +264,7 @@ class XBee(Thread):
 		return None
 
 	def AddNode(self, addr, rssi, nrssi=0x00):
-		node = {'addr':addr ,'rssi':rssi ,'nrssi':nrssi, 'time':time(), 'deployed':False, 'nt':time,
+		node = {'addr':addr ,'rssi':[0] ,'nrssi':[0], 'time':time(), 'deployed':False, 'nt':time,
 			'raddr':0x0000, 'rrssi':0x00, 'rnrssi':0x00, 
 			'faddr':0x007E, 'frssi':0x00, 'fnrssi':0x00}
 		print("add node:{}".format(node['addr']))
@@ -279,10 +280,14 @@ class XBee(Thread):
 		else:
 			# print("update node: {} {} {}".format(naddr, rssi, nrssi))
 			# print("       node: {} {} {}".format(node['addr'], node['rssi'], node['nrssi']))
-			node['rssi'] = rssi
+			node['rssi'].append(rssi)
+			if len(node['rssi']) > 10:
+				node['rssi'].remove(node['rssi'][0])
 			node['time'] = time()
 			if nrssi != 0x00:
-				node['nrssi'] = nrssi
+				node['nrssi'].append(nrssi)
+				if len(node['nrssi']) > 10:
+					node['nrssi'].remove(node['nrssi'][0])
 
 	def RemoveLost(self, rear, front):
 		# It seems we've lost one or more nodes, we'll need
@@ -425,7 +430,7 @@ class XBee(Thread):
 			message = bytearray(b'\x7e\x00\x08\x01\x00\xee\xee\x00\x00\x12\xee\x00')
 			message[5] = (first['addr']&0xFF00)>>8
 			message[6] = first['addr']&0xFF
-			message[10] = first['rssi']
+			message[10] = first['rssi'][-1]
 			message[11] = checksum(message[3:])
 			self.serial.write(escape(message))
 
