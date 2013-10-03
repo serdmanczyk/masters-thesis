@@ -9,10 +9,12 @@ m_frameid(0),
 m_ticks(0),
 m_now(0),
 m_CtrlIn(90),  // Stay still
+m_bfrontlost(false),
+m_brearlost(false),
 m_state(uninitialized)
 {
    ResetNeighbor(&m_fnb, 0xFFFF);
-   ResetNeighbor(&m_rnb, 0x0000);
+   ResetNeighbor(&m_rnb, 0xFFFF);
 
    for (u_int i=0;i<MAX_MSGQ;i++)
    {
@@ -99,17 +101,27 @@ bool XBee::Pulse(u_long now)
 
    if (m_state == deploy)
    {
-      if (m_ticks % 20) // 100ms  
+      if (m_ticks % 20) // 100ms
+      {  
          MsgAudit();
+      }
 
       if ((m_ticks % 40) == 0) // 200ms  
+      {
          ServoMgr();
-
+         CtrlOut();
+      }
       if ((m_ticks % 80) == 0) // 400ms
-         NRSSIAudit();
-
+         NeighborAudit();
+      
       if (m_ticks == 240) // 800ms
+      {
          NRSS();
+         if (m_brearlost)
+         {
+            LostRearBx();
+         }
+      }
 
       if (m_ticks == 300) // 1s
          RSSReport();
@@ -189,6 +201,27 @@ bool XBee::ParseXBee(u_char *message, u_int length)
             digitalWrite(PIN_LED3, 1);
             break;
          }
+         case 0x34:{
+            m_CtrlIn = (int)message[7];
+            break;
+         }
+         case 0x31:{
+            if (m_bfrontlost)
+            {
+               ResetNeighbor(&m_fnb, addr);
+               LostRearAck(addr);
+               m_bfrontlost = false;
+            }
+            break;
+         }
+         case 0x32:{
+            if (m_brearlost)
+            {
+               ResetNeighbor(&m_rnb, addr);
+               m_brearlost = false;
+            }
+            break;
+         }
       }
    }
    else if (message[0] == 0x88) // AT Command Response
@@ -235,13 +268,28 @@ bool XBee::ParseXBee(u_char *message, u_int length)
 }
 
 void XBee::MY(){Serial.write((u_char*)"\x7e\x00\x04\x08\x01\x4d\x59\x50", 8);}
-void XBee::Bx(){Serial.write((u_char *)"\x7E\x00\x07\x01\x00\xFF\xFF\x00\x00\x10\xf0", 11);}
+void XBee::Bx(){Serial.write((u_char *)"\x7E\x00\x07\x01\x00\xFF\xFF\x00\x00\x10", 10);}
+void XBee::LostRearBx(){Serial.write((u_char *)"\x7E\x00\x07\x01\x00\xFF\xFF\x00\x00\x31", 10);}
+
+void XBee::LostRearAck(u_char addr)
+{
+   u_char msg[10];
+   u_char frid = fid();
+
+   memcpy(msg, "\x7E\x00\x07\x01\xFF\xFF\xFF\x00\xFF\x32", 10);
+   msg[4] = frid;
+   msg[5] = hb(addr); // neighbor address high
+   msg[6] = lb(addr); // neighbor address low
+   msg[8] = frid;  // frame id (for ack)
+
+   MsgQueue(msg, 10, frid);
+}
 
 void XBee::ACK(u_int addr, u_char sfid)
 {
    u_char msg[11];
 
-   memcpy(msg, "\x7E\x00\x08\x01\x00\xFF\xFF\x00\x00\x27\x00", 11);
+   memcpy(msg, "\x7E\x00\x08\x01\x00\xFF\xFF\x00\x00\x27\xFF", 11);
    msg[5] = hb(addr); // neighbor address high
    msg[6] = lb(addr); // neighbor address low
    msg[10] = sfid;  // frame id (for ack)
@@ -264,7 +312,7 @@ void XBee::NRSS()
          memcpy(msg, "\x7E\x00\x08\x01\x00\xFF\xFF\x00\x00\x12\xFF", 11);
          msg[5] = hb(nodes[i]->addr); // neighbor address high
          msg[6] = lb(nodes[i]->addr); // neighbor address low
-         msg[10] = nodes[i]->rss;  // neighbor rss
+         msg[10] = nodes[i]->rssi[nodes[i]->ri];  // neighbor rss
 
          Tx(msg, 11);
       }
@@ -285,12 +333,12 @@ bool XBee::RSSReport()
    msg[11] = lb(m_addr); // source address low
    msg[12] = hb(m_fnb.addr); 
    msg[13] = lb(m_fnb.addr); 
-   msg[14] = navg(m_fnb.rssi, m_fnb.rlen);
-   msg[15] = navg(m_fnb.nrssi, m_fnb.rlen);
+   msg[14] = navg(m_fnb.rssi, m_fnb.rl);
+   msg[15] = navg(m_fnb.nrssi, m_fnb.nl);
    msg[16] = hb(m_rnb.addr); 
    msg[17] = lb(m_rnb.addr); 
-   msg[18] = navg(m_rnb.rssi, m_rnb.rlen);
-   msg[19] = navg(m_rnb.nrssi, m_rnb.rlen);
+   msg[18] = navg(m_rnb.rssi, m_rnb.rl);
+   msg[19] = navg(m_rnb.nrssi, m_rnb.nl);
 
    MsgQueue(msg, 21, frid);
 
@@ -313,6 +361,24 @@ bool XBee::FwdRSSReport(u_char *data)
 
    return true;
 }
+
+
+void XBee::LostNodeNotice(u_char addr)
+{
+   u_char msg[12];
+   u_char frid = fid();
+
+   memcpy(msg, "\x7E\x00\x09\x01\xFF\xFF\xFF\x00\xFF\x33\xFF\xFF", 12);
+   msg[4] = frid; // frame id
+   msg[5] = hb(m_rnb.addr); // address high byte
+   msg[6] = lb(m_rnb.addr); // address low byte
+   msg[8] = frid;
+   msg[10] = hb(addr); // node address high
+   msg[11] = lb(addr); // node address low
+
+   MsgQueue(msg, 12, frid);
+}
+
 
 bool XBee::PingOut(u_char pid, u_int naddr)
 {
@@ -352,16 +418,31 @@ bool XBee::PingIn(u_char pid, u_int naddr)
    return true;
 }
 
+void XBee::CtrlOut()
+{
+   if (m_fnb.addr != 0xFFFF)
+   {
+      u_char msg[11];
+
+      memcpy(msg, "\x7E\x00\x08\x01\x00\xFF\xFF\x00\x00\x32\xFF", 11);
+      msg[5] = hb(m_fnb.addr); // neighbor address high
+      msg[6] = lb(m_fnb.addr); // neighbor address low
+      msg[10] = (u_char)m_CtrlIn;  // frame id (for ack)
+
+      Tx(msg, 11);
+   }
+}
 
 void XBee::ResetNeighbor(neighbor *nb, u_int addr)
 {
    nb->addr = addr;
-   nb->rss = 0x00;
-   nb->nrss = 0x00;
-   nb->i = 0;
-   nb->rlen = 0;
+   nb->ri = 0;
+   nb->ni = 0;
+   nb->rl = 0;
+   nb->nl = 0;
    memset(nb->rssi, 0, 10);
    memset(nb->nrssi, 0, 10);
+   nb->lstime = m_now;
 }
 
 
@@ -377,7 +458,8 @@ bool XBee::NeighborUpdate(u_int addr, u_char rss)
    {
       if (nodes[i]->addr == addr)
       {
-         nodes[i]->rss = rss;
+         nodes[i]->rssi[nodes[i]->ri] = rss;
+         iterrssi(nodes[i]);
          found = true;
       }
    }
@@ -398,14 +480,43 @@ bool XBee::NeighborUpdate(u_int addr, u_char rss, u_char nrss)
       if (nodes[i]->addr == addr)
       {
 
-         nodes[i]->rss = rss;
-         nodes[i]->nrss = nrss;
+         nodes[i]->rssi[nodes[i]->ri] = rss;
+         nodes[i]->nrssi[nodes[i]->ni] = nrss;
+
+         iterrssi(nodes[i]);
+         iternrssi(nodes[i]);
+
          found = true;
          break;
       }
    }
 
    return found;
+}
+
+void XBee::NeighborAudit()
+{
+   if ((m_now - m_fnb.lstime) > 5000)
+   {
+      // We've lost our front neighbor
+      m_bfrontlost = true;
+      // Send message to base station
+      LostNodeNotice(m_fnb.addr);
+      // set front to inactive
+      ResetNeighbor(&m_fnb, 0xFFFF);
+      // listen for lost rear broadcast
+   }
+
+   if ((m_now - m_rnb.lstime) > 5000)
+   {
+      // We've lost our rear neighbor
+      m_brearlost = true;
+      // set rear to inactive
+      ResetNeighbor(&m_rnb, 0xFFFF);
+      // send message forward (to stop)
+      m_CtrlIn = 90;
+      // begin sending lost rear broadcast
+   }
 }
 
 bool XBee::MsgQueue(u_char*s, int len, u_char frameid)
@@ -584,37 +695,31 @@ u_char XBee::navg(u_char *nbr, u_int len)
    return rssi;
 }
 
+ u_char XBee::iterrssi(neighbor *nb)
+ {
+   nb->ri++;
+   if (nb->ri > 9)
+      nb->ri = 0;
+   if (nb->rl < 10)
+      nb->rl++;
+ }
 
-void XBee::NRSSIAudit()
-{
-   neighbor *nodes[2];
-
-   nodes[0] = &m_fnb;
-   nodes[1] = &m_rnb;
-
-   for (u_char i=0;i<2;i++)
-   {
-      if (nodes[i]->addr != 0xFFFF)
-      {
-         nodes[i]->rssi[nodes[i]->i] = nodes[i]->rss;
-         nodes[i]->nrssi[nodes[i]->i] = nodes[i]->nrss;
-         nodes[i]->i++;
-
-         if (nodes[i]->i > 9)
-            nodes[i]->i = 0;
-         if (nodes[i]->rlen < 10)
-            nodes[i]->rlen++;
-      }
-   }
-}
+ u_char XBee::iternrssi(neighbor *nb)
+ {
+   nb->ni++;
+   if (nb->ni > 9)
+      nb->ni = 0;
+   if (nb->nl < 10)
+      nb->nl++;
+ }
 
 u_char XBee::rearrssi()
 {
    u_char rrssi = 70;
    u_char nrssi = 70;
 
-   rrssi = navg(m_rnb.rssi, m_rnb.rlen);
-   nrssi = navg(m_rnb.nrssi, m_rnb.rlen);
+   rrssi = navg(m_rnb.rssi, m_rnb.rl);
+   nrssi = navg(m_rnb.nrssi, m_rnb.nl);
 
    return rrssi > nrssi ? nrssi : rrssi;
 }
@@ -624,8 +729,8 @@ u_char XBee::frontrssi()
    u_char rrssi = 70;
    u_char nrssi = 70;
 
-   rrssi = navg(m_fnb.rssi, m_rnb.rlen);
-   nrssi = navg(m_fnb.nrssi, m_rnb.rlen);
+   rrssi = navg(m_fnb.rssi, m_rnb.rl);
+   nrssi = navg(m_fnb.nrssi, m_rnb.nl);
 
    return rrssi > nrssi ? nrssi : rrssi;
 }

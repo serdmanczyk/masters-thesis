@@ -39,7 +39,7 @@ class XBee(Thread):
 			if node['deployed']:
 				nodes = True
 				print("Node:{} RSSI:{:.0f} NRSSI:{:.0f} age:{}".format(node['addr'], sum(node['rssi']) / len(node['rssi']), sum(node['nrssi']) / len(node['nrssi']), 'y' if (now-node['time']) > 1.5 else 'n'))
-				if node['faddr'] != 0x007E:
+				if node['faddr'] != 0xFFFF:
 					print("\tFront:{}  RSSI:{} NRSSI:{} age:{}".format(node['faddr'], node['frssi'], node['fnrssi'],  'y' if (now-node['nt']) > 3 else 'n'))
 				print("\tRear:{}   RSSI:{} NRSSI:{} age:{}".format(node['raddr'], node['rrssi'], node['rnrssi'],  'y' if (now-node['nt']) > 3 else 'n'))
 		if nodes:
@@ -71,27 +71,23 @@ class XBee(Thread):
 				self.state = self.processing
 
 			if self.state == self.processing:
-				if (self.tick % 18) == 0: #100ms
+				if (self.tick % 18) == 0:  #.1s
 					self.msgaudit()
 					self.pingaudit()
 			
-				if (self.tick % 91) == 0: #400ms
+				if (self.tick % 91) == 0:  #.4s
 					self.PingNodes()
 
-			
-				# if (self.tick % 109) == 0: #.6s
-				# 	self.BXRSS()
-
-				if (self.tick % 147) == 0: #.8se
+				if (self.tick % 147) == 0: #.8s
 					self.NeighborRSSResponse()
 
-				if (self.tick % 364) == 0: #2s
+				if (self.tick % 182) == 0: #1s
 					self.evalDeploy()
 
 			if (((self.tick) % 182) == 0) and (self.state == self.startup):
 				self.MY()
 
-			if (self.tick % 364) == 0: #2s
+			if (self.tick % 182) == 0: #1s
 				self.OutDebug()
 				self.tick = 1
 
@@ -180,14 +176,13 @@ class XBee(Thread):
 
 	def CheckNodeThreshold(self, node):
 		nrssi = sum(node['rssi']) / len(node['rssi'])
-
 		nerssi = sum(node['nrssi']) / len(node['nrssi'])
 		if nrssi > nerssi:
 			rss = nerssi
 		else:
 			rss = nrssi
 		# print("check threshold:{} rss:{}".format(node['addr'], rss))
-		if rss > 70:
+		if rss > 30:
 			return True
 		return False
 
@@ -264,9 +259,9 @@ class XBee(Thread):
 		return None
 
 	def AddNode(self, addr, rssi, nrssi=0x00):
-		node = {'addr':addr ,'rssi':[0] ,'nrssi':[0], 'time':time(), 'deployed':False, 'nt':time,
+		node = {'addr':addr ,'rssi':[rssi] ,'nrssi':[rssi], 'time':time(), 'deployed':False, 'nt':time(),
 			'raddr':0x0000, 'rrssi':0x00, 'rnrssi':0x00, 
-			'faddr':0x007E, 'frssi':0x00, 'fnrssi':0x00}
+			'faddr':0xFFFF, 'frssi':0x00, 'fnrssi':0x00}
 		print("add node:{}".format(node['addr']))
 		if len(self.nodes)>0:
 			node['faddr'] = self.nodes[-1]['addr']
@@ -313,7 +308,7 @@ class XBee(Thread):
 			# our list when that message arrives.
 			return
 
-		if (node['faddr'] != faddr) and (node['faddr'] != 0x007E):
+		if (node['faddr'] != faddr) and (node['faddr'] != 0xFFFF):
 			self.RemoveLost(node['addr'], faddr)
 
 		node['frssi'] = frssi

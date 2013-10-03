@@ -29,12 +29,13 @@ enum STATE {
 typedef struct
 {
    u_int addr;
-   u_char rss;
-   u_char nrss;
    u_char rssi[10];
    u_char nrssi[10];
-   u_char i;
-   u_char rlen;
+   u_char ri;
+   u_char ni;
+   u_char rl;
+   u_char nl;
+   u_long lstime;
 }neighbor;
 
 typedef struct
@@ -63,13 +64,18 @@ private:
 
     void MY();
     void Bx();
+    void LostRearBx();
+    void LostRearAck(u_char addr);
     void NRSS();
     bool RSSReport();
     bool FwdRSSReport(u_char *data);
+    void LostNodeNotice(u_char addr);
     void ACK(u_int addr, u_char sfid);
 
     bool PingOut(u_char pid, u_int naddr);
     bool PingIn(u_char pid, u_int naddr); 
+
+    void CtrlOut();
 
     bool MsgAudit();    
     bool MsgQueue(u_char*s, int len, u_char frameid);
@@ -79,13 +85,16 @@ private:
     void ResetNeighbor(neighbor *nb, u_int addr);
     bool NeighborUpdate(u_int addr, u_char rss);
     bool NeighborUpdate(u_int addr, u_char rss, u_char nrss);
+    void NeighborAudit();
 
-    void NRSSIAudit();
-    void ServoMgr();
-    int CalcCtrl(); 
     u_char navg(u_char *rss, u_int len);
+    u_char iterrssi(neighbor *nb);
+    u_char iternrssi(neighbor *nb);
     u_char rearrssi();
     u_char frontrssi();
+
+    void ServoMgr();
+    int CalcCtrl(); 
 
     u_char fid();
 	u_int  escape(u_char *msg, u_int len);
@@ -103,5 +112,7 @@ private:
     u_int m_ticks;
     u_long m_now;
     int m_CtrlIn;
+    bool m_bfrontlost;
+    bool m_brearlost;
 };
 #endif
