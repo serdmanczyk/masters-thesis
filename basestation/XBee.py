@@ -16,6 +16,7 @@ class XBee(Thread):
 	stop = Event()
 	currdeploy = None
 	logdata = []
+	lostchain = False
 
 	startup, listen, processing = range(0,3) # States
 
@@ -24,7 +25,6 @@ class XBee(Thread):
 		self.serial = serial.Serial(port=serialport, baudrate=57600, timeout=0, rtscts=True)
 		self.serial.setRTS(True)
 		self.starttime = time()
-		self.ready = False
 		self.start()
 
 	def shutdown(self):
@@ -32,16 +32,18 @@ class XBee(Thread):
 		self.join()
 		self.writelog()
 
-	def Ready(self):
-		return self.ready
-
 	def log(self, message, verbose):
+		if message.find("run time") != -1:
+			out = message + "\n"
 		out = datetime.utcnow().strftime("%H-%M-%S: ") + message + "\n"
 		if message.find("Rx") != -1:
 			out = "\n" + out
-		self.logdata.append(out)
+		if message.find("success rate") != -1:
+			message = "\n" + message
+			out = "\n" + out
 		if verbose:
 			print(message)
+		self.logdata.append(out)
 
 	def writelog(self):
 		with open(datetime.utcnow().strftime("testrun_%Y-%m-%dT%H-%M-%S.log"), 'w') as f:
@@ -49,17 +51,16 @@ class XBee(Thread):
 
 	def OutDebug(self):
 		now = time()
-		nodes = False
+		if len(self.nodes):
+			self.log("success rate: {:.2f}".format(100-(100*(sum(self.pingsuccess) / len(self.pingsuccess)))), True)
 		for node in self.nodes:
 			if node['deployed']:
-				nodes = True
 				self.log("Node:{} RSSI:{:.0f} NRSSI:{:.0f} age:{}".format(node['addr'], sum(node['rssi']) / len(node['rssi']), sum(node['nrssi']) / len(node['nrssi']), 'y' if (now-node['time']) > 1.5 else 'n'), True)
 				if node['faddr'] != 0xFFFF:
 					self.log("\tFront:{}  RSSI:{} NRSSI:{} age:{}".format(node['faddr'], node['frssi'], node['fnrssi'],  'y' if (now-node['nt']) > 3 else 'n'), True)
 				self.log("\tRear:{}   RSSI:{} NRSSI:{} age:{}".format(node['raddr'], node['rrssi'], node['rnrssi'],  'y' if (now-node['nt']) > 3 else 'n'), True)
-		if nodes:
-			self.log("success rate: {:.2f}".format(100-(100*(sum(self.pingsuccess) / len(self.pingsuccess)))), True)
-			self.log("time:{:.2f}".format(now-self.starttime), True)
+		if len(self.nodes):
+			self.log("run time:{:.2f}".format(now-self.starttime), True)
 
 
 	def id(self):
@@ -89,6 +90,7 @@ class XBee(Thread):
 				if (self.tick % 18) == 0:  #.1s
 					self.msgaudit()
 					self.pingaudit()
+					self.CheckOnChain()
 			
 				if (self.tick % 91) == 0:  #.4s
 					self.PingNodes()
@@ -152,6 +154,12 @@ class XBee(Thread):
 				appmsgid = message[7]
 				self.DeployAck(appmsgid)
 				self.msgmark(appmsgid)
+
+			elif appid == 0x31:
+				if self.lostchain:
+					# looks like the node in front of us went down
+					self.RemoveLost(naddr, 0x00)
+					self.LostAck(naddr)
 		
 		elif rxtype == 0x89: # transmit status
 			frameid = message[1]
@@ -172,6 +180,26 @@ class XBee(Thread):
 				self.starttime = time()
 				self.addr = ((message[5]<<8) + message[6])
 
+	def CheckOnChain(self):
+		if self.lostchain is True:return
+		node = self.getClosestDeployed()
+		if node is not None:
+			if ((time() - node['time']) > 5):
+				self.log("lost link to first node in chain: {}".format(node['addr']), True)
+				self.lostchain = True
+
+		# remove any undeployed nodes that we haven't heard from
+		# edge case, but couldn't hurt
+		lostnodes = []
+		for node in self.nodes:
+			if node['deployed'] is False:
+				if ((time() - node['time']) > 5):
+					lostnodes.append(nodes)
+
+		for node in lostnodes:
+			self.log("removing silent node: {}".format(node['addr']))
+			self.nodes.remove(node)
+
 
 	def getClosestDeployed(self):
 		rnode = None
@@ -180,6 +208,8 @@ class XBee(Thread):
 				break
 			else:
 				rnode = node
+		if rnode is not None:
+			self.log("closest deployed:{}".format(rnode['addr']), False)
 		return rnode
 
 	def getNextnonDeployed(self):
@@ -202,20 +232,21 @@ class XBee(Thread):
 		return False
 
 	def evalDeploy(self):
+		if self.lostchain: return # we've got a situation here
 		if self.currdeploy is not None:
 			self.doNextDeploymentStep()
 			return
 		node = self.getClosestDeployed()
 		if node is not None:
-			if node is self.nodes[-1]:return
+			if node is self.nodes[-1]:return # no more nodes to deploy
 			if self.CheckNodeThreshold(node):
-				next = self.getNextnonDeployed()
+				next = self.getNextnonDeployed() # deploy the next one
 				if next is not None:
 					self.Deploy(next)
 			return
 		node = self.getNextnonDeployed()
 		if node is not None:
-			self.Deploy(node)
+			self.Deploy(node) # deploy the first
 
 	def Deploy(self, node):
 		steplist = []
@@ -261,9 +292,11 @@ class XBee(Thread):
 			self.doNextDeploymentStep()
 		else:
 			self.log("deployment successful", True)
+			fnode = self.getnode(self.currdeploy['node']['faddr'])
+			if fnode is not None:
+				fnode['rssi'] = [0x00]
+				fnode['nrssi'] = [0x00]
 			self.currdeploy['node']['deployed'] = True
-			if self.getNextnonDeployed() is None:
-				self.ready = True
 			self.currdeploy = None
 
 
@@ -298,16 +331,15 @@ class XBee(Thread):
 				node['nrssi'].append(nrssi)
 				if len(node['nrssi']) > 10:
 					node['nrssi'].remove(node['nrssi'][0])
+			if (node is self.getClosestDeployed()) and (self.lostchain):
+				 # we heard back from our closest guy, long time no see
+				self.lostchain = False
 
-	def RemoveLost(self, rear, front):
-		# It seems we've lost one or more nodes, we'll need
-		# to purge our list to match our new node situation
-		lostnodes = []
-		self.log("remove lost:{}:{}".format(rear, front), True)
 
 	def updatenodeneighborinfo(self, naddr, faddr, frssi, fnrssi, raddr, rrssi, rnrssi):
 		node = self.getnode(naddr)
 		if node is None:
+			self.log("I hope this goes away...", True)
 			# we haven't deployed this node.  We should have heard a broadcast first
 			# and added it, ignore this scenario.
 			return
@@ -315,22 +347,63 @@ class XBee(Thread):
 		self.log("update ne: {}  front:{} rs:{} ns:{} rear:{} rs:{} ns:{}".format(naddr, faddr, frssi, fnrssi, raddr, rrssi, rnrssi), False)
 		self.log("       ne: {}  front:{} rs:{} ns:{} rear:{} rs:{} ns:{}".format(node['addr'], node['faddr'], node['frssi'], node['fnrssi'], node['raddr'], node['rrssi'], node['rnrssi']), False)
 
-		if node['raddr'] != raddr:
-			self.log("something's wrong here", True)
-			# we should reconnect our list, but we need to know the start.
-			# Our nodes should be re-assembled now, so we'll wait for the 
-			# rear neighbor to send its report and let the next 'if' re-build 
-			# our list when that message arrives.
-			return
+		# if someone produced an erroneous one of these it could fuck our shit up
+		if (node['faddr'] != faddr):
+			self.RemoveLost(faddr, naddr)
 
-		if (node['faddr'] != faddr) and (node['faddr'] != 0xFFFF):
-			self.RemoveLost(node['addr'], faddr)
+		if (node['raddr'] != raddr):
+			if (raddr != 0xFFFF): # improbable, but would suck
+				self.RemoveLost(naddr, raddr)
 
 		node['frssi'] = frssi
 		node['fnrssi'] = fnrssi
 		node['rrssi'] = rrssi
 		node['rnrssi'] = rnrssi
 		node['nt'] = time()
+
+	def RemoveLost(self, front, rear):
+		# It seems we've lost one or more nodes, we'll need
+		# to purge our list to match our new node situation
+		# and pray to our god that this message isn't false
+		lostnodes = []
+		fnode = None
+		rnode = None
+		start = False
+
+		self.log("remove lost:{}:{}".format(front, rear), True)
+
+		if front == 0xFFFF:
+			start = True
+
+		for node in self.nodes:
+			if node['addr'] == front:
+				fnode = node
+				start = True
+				continue
+			if node['addr'] == rear:
+				rnode = node
+				break
+			if start:
+				lostnodes.append(node)
+
+		for node in lostnodes:
+			self.log("removing:{}".format(node['addr']), False)
+			self.nodes.remove(node)
+
+		if fnode is not None:
+			fnode['raddr'] = rear
+			fnode['rrssi'] = 0x00
+			fnode['rnrssi'] = 0x00
+
+		if rnode is not None:
+			rnode['faddr'] = front
+			rnode['frssi'] = 0x00
+			rnode['fnrssi'] = 0x00
+
+		postop = ""
+		for node in self.nodes:
+			postop = postop + "node: {} front:{} rear:{}\n".format(node['addr'], node['faddr'], node['raddr'])
+		self.log("post op: " + postop, False)
 
 	def pingmark(self, iden):
 		for packet in self.pings:
@@ -433,6 +506,16 @@ class XBee(Thread):
 		message[10] = fid # id (for ack)
 		message[11] = checksum(message[3:])
 		self.serial.write(message)
+
+	def LostAck(self, addr):
+		fid = self.id()
+		message = bytearray(b'\x7e\x00\x07\x01\xFF\xFF\xFF\x00\xFF\x32\x00')
+		message[4] = fid
+		message[5] = (addr&0xFF00)>>8
+		message[6] = addr&0xFF
+		message[8] = fid
+		message[10] = checksum(message[3:])
+		self.buffout(message, addr, fid, True)
 
 	def NeighborRSSResponse(self):
 		first = self.getClosestDeployed()
