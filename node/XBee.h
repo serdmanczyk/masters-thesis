@@ -87,7 +87,7 @@ private:
     bool NeighborUpdate(u_int addr, u_char rss, u_char nrss);
     void NeighborAudit();
 
-    u_char navg(u_char *rss, u_int len);
+    u_char rssavg(u_char *rss, u_int len);
     u_char iterrssi(neighbor *nb);
     u_char iternrssi(neighbor *nb);
     u_char rearrssi();
