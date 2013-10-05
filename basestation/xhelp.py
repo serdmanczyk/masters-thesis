@@ -41,3 +41,6 @@ def checksum(buff):
 	
 def hexformat(bytebuffer):
 	return "".join(" {0:02x}".format(byte) for byte in bytebuffer)
+
+def avg(array):
+	return sum(array) / len(array)
