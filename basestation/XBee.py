@@ -230,14 +230,14 @@ class XBee(Thread):
 		return None
 
 	def CheckNodeThreshold(self, node):
-		nrssi = sum(node['rssi']) / len(node['rssi'])
-		nerssi = sum(node['nrssi']) / len(node['nrssi'])
+		nrssi = avg(node['rssi'])
+		nerssi = avg(node['nrssi'])
 		if nrssi > nerssi:
 			rss = nerssi
 		else:
 			rss = nrssi
 		self.log("check threshold:{} rss:{}".format(node['addr'], rss), False)
-		if rss > 70:
+		if rss > 30:
 			return True
 		return False
 

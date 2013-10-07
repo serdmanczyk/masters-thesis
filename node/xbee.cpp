@@ -36,8 +36,10 @@ void XBee::Init()
    pinMode(RTS, OUTPUT);
    pinMode(CTS, INPUT);
 
-   digitalWrite(PIN_LED0, 1); 
-   digitalWrite(PIN_LED1, 1);
+   digitalWrite(PIN_LED0, 0); 
+   digitalWrite(PIN_LED1, 0);
+   digitalWrite(PIN_LED2, 1); 
+   digitalWrite(PIN_LED3, 1);
 
    Serial.begin(57600, SCI_SCI2B); // port of XBee GR-SAKURA 
    digitalWrite(RESET, 0); // Reset XBee 
@@ -45,8 +47,7 @@ void XBee::Init()
    digitalWrite(RESET, 1); 
    digitalWrite(RTS, 0);
 
-   // digitalWrite(PIN_LED0, 0); 
-   digitalWrite(PIN_LED1, 0);
+   digitalWrite(PIN_LED1, 1);
    delay(200);  
     m_state = self_realizing;
 
@@ -195,10 +196,10 @@ bool XBee::ParseXBee(u_char *message, u_int length)
          }
          case 0x30:{ // deploy
             m_state = deploy;
-            digitalWrite(PIN_LED0, 1);
-            digitalWrite(PIN_LED1, 1);
-            digitalWrite(PIN_LED2, 1);
-            digitalWrite(PIN_LED3, 1);
+            digitalWrite(PIN_LED0, 0);
+            digitalWrite(PIN_LED1, 0);
+            digitalWrite(PIN_LED2, 0);
+            digitalWrite(PIN_LED3, 0);
             break;
          }
          case 0x34:{
@@ -211,11 +212,6 @@ bool XBee::ParseXBee(u_char *message, u_int length)
                ResetNeighbor(&m_fnb, addr);
                LostRearAck(addr);
                m_bfrontlost = false;
-
-               digitalWrite(PIN_LED0, 1);
-               digitalWrite(PIN_LED1, 1);
-               digitalWrite(PIN_LED2, 1);
-               digitalWrite(PIN_LED3, 1);
             }
             break;
          }
@@ -225,10 +221,10 @@ bool XBee::ParseXBee(u_char *message, u_int length)
                ResetNeighbor(&m_rnb, addr);
                m_brearlost = false;
 
-               digitalWrite(PIN_LED0, 1);
-               digitalWrite(PIN_LED1, 1);
-               digitalWrite(PIN_LED2, 1);
-               digitalWrite(PIN_LED3, 1);
+               digitalWrite(PIN_LED0, 0);
+               digitalWrite(PIN_LED1, 0);
+               digitalWrite(PIN_LED2, 0);
+               digitalWrite(PIN_LED3, 0);
             }
             break;
          }
@@ -532,11 +528,6 @@ void XBee::NeighborAudit()
          // set front to inactive
          ResetNeighbor(&m_fnb, 0xFFFF);
          // listen for lost rear broadcast
-
-         digitalWrite(PIN_LED0, 0);
-         digitalWrite(PIN_LED1, 0);
-         digitalWrite(PIN_LED2, 0);
-         digitalWrite(PIN_LED3, 0);
       }
    }
 
@@ -552,10 +543,10 @@ void XBee::NeighborAudit()
          m_CtrlIn = 90;
          // begin sending lost rear broadcast
 
-         digitalWrite(PIN_LED0, 0);
-         digitalWrite(PIN_LED1, 0);
-         digitalWrite(PIN_LED2, 0);
-         digitalWrite(PIN_LED3, 0);
+         digitalWrite(PIN_LED0, 1);
+         digitalWrite(PIN_LED1, 1);
+         digitalWrite(PIN_LED2, 1);
+         digitalWrite(PIN_LED3, 1);
       }
    }
 }
@@ -665,28 +656,28 @@ void XBee::ServoMgr()
    if (V == 90)
    {
       //  Stay still and/or letting rear catch up
-      // digitalWrite(PIN_LED0, 1);
-      // digitalWrite(PIN_LED1, 1);
-      // digitalWrite(PIN_LED2, 1);
-      // digitalWrite(PIN_LED3, 1);
+      digitalWrite(PIN_LED0, 0);
+      digitalWrite(PIN_LED1, 0);
+      digitalWrite(PIN_LED2, 0);
+      digitalWrite(PIN_LED3, 0);
    }
 
    if (V < 90)
    {
-      //  Back up fastest
-      // digitalWrite(PIN_LED0, 0);
-      // digitalWrite(PIN_LED1, 1);
-      // digitalWrite(PIN_LED2, 1);
-      // digitalWrite(PIN_LED3, 1);
+      //  Back up, too close to front / too far from rear
+      digitalWrite(PIN_LED0, 1);
+      digitalWrite(PIN_LED1, 0);
+      digitalWrite(PIN_LED2, 0);
+      digitalWrite(PIN_LED3, 0);
    }
 
    if (V > 90)
    {
       //  Speed up (connection to rear too strong)
-      // digitalWrite(PIN_LED0, 1);
-      // digitalWrite(PIN_LED1, 1);
-      // digitalWrite(PIN_LED2, 1);
-      // digitalWrite(PIN_LED3, 0);
+      digitalWrite(PIN_LED0, 0);
+      digitalWrite(PIN_LED1, 0);
+      digitalWrite(PIN_LED2, 0);
+      digitalWrite(PIN_LED3, 1);
    }
 }
 
@@ -862,7 +853,7 @@ bool XBee::ATcmd(u_int cmd, u_char *data)
       if (m_state == self_realizing)
       {
          m_state = rest;
-         digitalWrite(PIN_LED0, 0);
+         digitalWrite(PIN_LED0, 1);
       }
    }
 
