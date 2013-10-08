@@ -237,7 +237,7 @@ class XBee(Thread):
 		else:
 			rss = nrssi
 		self.log("check threshold:{} rss:{}".format(node['addr'], rss), False)
-		if rss > 30:
+		if rss > 70:
 			return True
 		return False
 
@@ -327,13 +327,23 @@ class XBee(Thread):
 		self.nodes.append(node)
 		return node
 
+	def updatenode(self, naddr):
+		node = self.getnode(naddr)
+		if node is None:
+			node = self.AddNode(naddr, rssi, nrssi)
+
+		node['time'] = time()
+		if (node is self.getClosestDeployed()) and (self.lostchain):
+			 # we heard back from our closest guy, long time no see
+			self.lostchain = None
+
 	def updatenodeinfo(self, naddr, rssi, nrssi=0x00):
 		node = self.getnode(naddr)
 		if node is None:
 			node = self.AddNode(naddr, rssi, nrssi)
 		else:
-			self.log("update node: {} {} {}".format(naddr, rssi, nrssi), False)
-			self.log("       node: {} {} {}".format(node['addr'], node['rssi'], node['nrssi']), False)
+			# self.log("update node: {} {} {}".format(naddr, rssi, nrssi), False)
+			# self.log("       node: {} {} {}".format(node['addr'], node['rssi'], node['nrssi']), False)
 			node['rssi'].append(rssi)
 			if len(node['rssi']) > 10:
 				node['rssi'].remove(node['rssi'][0])
@@ -370,6 +380,7 @@ class XBee(Thread):
 		node['fnrssi'] = fnrssi
 		node['rrssi'] = rrssi
 		node['rnrssi'] = rnrssi
+		node['time'] = time()
 		node['nt'] = time()
 
 	def RemoveLost(self, front, rear):

@@ -146,7 +146,7 @@ bool XBee::ParseXBee(u_char *message, u_int length)
       if (id != 0)
          ACK(addr, id);
 
-      NeighborUpdate(addr, rss);
+      // NeighborUpdate(addr, rss);
 
       switch(message[6])
       {
