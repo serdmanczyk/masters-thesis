@@ -146,7 +146,7 @@ bool XBee::ParseXBee(u_char *message, u_int length)
       if (id != 0)
          ACK(addr, id);
 
-      // NeighborUpdate(addr, rss);
+      NeighborUpdate(addr);
 
       switch(message[6])
       {
@@ -210,8 +210,11 @@ bool XBee::ParseXBee(u_char *message, u_int length)
             if (m_bfrontlost)
             {
                ResetNeighbor(&m_fnb, addr);
-               LostRearAck(addr);
                m_bfrontlost = false;
+            }
+            if (addr == m_fnb.addr)
+            {
+               LostRearAck(addr);
             }
             break;
          }
@@ -319,11 +322,18 @@ void XBee::NRSS()
       if (nodes[i]->addr != 0xFFFF)
       {
          u_char msg[11];
+         u_char ri = nodes[i]->ri;
+
+         if (ri == 0){
+            ri = 9;
+         }else{
+            ri -= 1;
+         }
 
          memcpy(msg, "\x7E\x00\x08\x01\x00\xFF\xFF\x00\x00\x12\xFF", 11);
          msg[5] = hb(nodes[i]->addr); // neighbor address high
          msg[6] = lb(nodes[i]->addr); // neighbor address low
-         msg[10] = nodes[i]->rssi[nodes[i]->ri-1];  // neighbor rss
+         msg[10] = nodes[i]->rssi[ri];  // neighbor rss
 
          Tx(msg, 11);
       }
@@ -465,9 +475,8 @@ void XBee::ResetNeighbor(neighbor *nb, u_int addr)
 }
 
 
-bool XBee::NeighborUpdate(u_int addr, u_char rss)
+bool XBee::NeighborUpdate(u_int addr)
 {
-   bool found = false;
    neighbor *nodes[2];
 
    nodes[0] = &m_fnb;
@@ -477,14 +486,11 @@ bool XBee::NeighborUpdate(u_int addr, u_char rss)
    {
       if (nodes[i]->addr == addr)
       {
-         nodes[i]->rssi[nodes[i]->ri] = rss;
          nodes[i]->lstime = m_now;
-         iterrssi(nodes[i]);
-         found = true;
       }
    }
 
-   return found;
+   return true;
 }
 
 bool XBee::NeighborUpdate(u_int addr, u_char rss, u_char nrss)
@@ -679,6 +685,14 @@ void XBee::ServoMgr()
       digitalWrite(PIN_LED2, 0);
       digitalWrite(PIN_LED3, 1);
    }
+
+   if (m_brearlost)
+   {
+      digitalWrite(PIN_LED0, 1);
+      digitalWrite(PIN_LED1, 1);
+      digitalWrite(PIN_LED2, 1);
+      digitalWrite(PIN_LED3, 1);  
+   }
 }
 
 int XBee::CalcCtrl()
@@ -708,6 +722,11 @@ int XBee::CalcCtrl()
 
    if (Vo < 0)
       Vo = 0;
+
+   if (m_brearlost)
+   {
+      Vo = 90;
+   }
 
    return Vo; 
 }

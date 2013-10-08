@@ -1,7 +1,8 @@
-from Xhelp import *
+from xhelp import *
 import serial
 from threading import Thread, Event
 from datetime import datetime
+import csv
 from time import sleep, time
 
 class XBee(Thread):
@@ -9,14 +10,15 @@ class XBee(Thread):
 	pings = []
 	outmsgs = []
 	pingsuccess = [0]
+	logdata = []
+	csvdata = []
 	addr = 0
 	tick = 1
 	frameid = 0
 	rxbuffer = bytearray()
 	stop = Event()
-	currdeploy = None
-	logdata = []
 	lostchain = None
+	currdeploy = None
 
 	startup, listen, processing = range(0,3) # States
 
@@ -31,6 +33,7 @@ class XBee(Thread):
 		self.stop.set()
 		self.join()
 		self.writelog()
+		self.writecsv()
 
 	def log(self, message, verbose):
 		if message.find("run time") != -1:
@@ -46,8 +49,16 @@ class XBee(Thread):
 		self.logdata.append(out)
 
 	def writelog(self):
-		with open(datetime.utcnow().strftime("testrun_%Y-%m-%dT%H-%M-%S.log"), 'w') as f:
+		with open(datetime.utcnow().strftime("logs/testrun_%Y-%m-%dT%H-%M-%S.log"), 'w') as f:
 			f.writelines(self.logdata)
+
+	def writecsv(self):
+		fieldnames = ['time', 'relationship', 'rssi', 'nrssi', 'age', 'success']
+		with open(datetime.utcnow().strftime("csv/testrun_%Y-%m-%dT%H-%M-%S.csv"), 'w') as f:
+			writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter=',', restval=" ", lineterminator='\n')
+			writer.writeheader()
+			writer.writerows(self.csvdata)
+			f.close()
 
 	def OutDebug(self):
 		now = time()
@@ -65,6 +76,45 @@ class XBee(Thread):
 			self.log("success rate: {:.2f}".format(100-(100*avg(self.pingsuccess))), True)
 			[self.log(msg, True) for msg in outarrr]
 
+	def csvlog(self):
+		now = time()
+		dt = "{:.2f}".format(now-self.starttime)
+		nodes = False
+		for node in self.nodes:
+			if node is self.getClosestDeployed():
+				nodes = True
+				entry = {'time':dt, 
+						 'relationship':"N-0:N-{}".format(node['addr']),
+						 'age':now - node['time'],
+						 'success':' ',
+						 'rssi':-avg(node['rssi']),
+						 'nrssi':-avg(node['nrssi'])}
+				self.csvdata.append(entry)
+			if node['deployed']:
+				nodes = True
+				if node['faddr'] != 0xFFFF:
+					entry = {'time':dt, 
+							 'relationship':"N-{}:N-{}".format(node['addr'], node['faddr']),
+							 'age':now - node['nt'],
+							 'success':' ',
+							 'rssi':-node['frssi'],
+							 'nrssi':-node['fnrssi']}
+					self.csvdata.append(entry)
+				entry = {'time':dt, 
+						 'relationship':"N-{}:N-{}".format(node['addr'], node['raddr']),
+						 'age':now - node['nt'],
+						 'success':' ',
+						 'rssi':-node['rrssi'],
+						 'nrssi':-node['rnrssi']}
+				self.csvdata.append(entry)	 
+		if nodes:
+			entry = {'time':dt, 
+					 'relationship':"chain",
+					 'age': ' ',
+					 'success':100 - (100* avg(self.pingsuccess)),
+					 'rssi':' ',
+					 'nrssi':' '}
+			self.csvdata.append(entry)
 
 	def id(self):
 		self.frameid = self.frameid + 1
@@ -109,6 +159,7 @@ class XBee(Thread):
 
 			if (self.tick % 182) == 0: #1s
 				self.OutDebug()
+				self.csvlog()
 				self.tick = 1
 
 			self.tick = self.tick+1
@@ -129,7 +180,7 @@ class XBee(Thread):
 			msgid = message[5]
 			appid = message[6]
 
-			self.updatenodeinfo(naddr, rssi)
+			self.updatenode(naddr)
 
 			if msgid != 0:
 				self.ACK(naddr, msgid)
@@ -161,9 +212,21 @@ class XBee(Thread):
 			elif appid == 0x31:
 				if self.lostchain:
 					# looks like the node in front of us went down
+					# good to hear from it again
 					self.RemoveLost(naddr, 0x00)
 					self.LostAck(naddr)
 					self.lostchain = None
+				# there's a chance the guy in front of us timed out
+				# but we didn't.  Let him know we're OK
+				fnode = self.getClosestDeployed()
+				if fnode is not None:
+					if naddr == fnode['addr']:
+						self.LostAck(naddr)
+
+
+			elif appid == 0x33:
+				laddr = (message[7]<<8) + message[8]
+				self.log("Lost Node notice: {}".format(laddr), True)
 		
 		elif rxtype == 0x89: # transmit status
 			frameid = message[1]
@@ -266,8 +329,8 @@ class XBee(Thread):
 		front = self.getnode(node['faddr'])
 		if front is not None:
 			front['raddr'] = node['addr']
-			front['rrssi'] = 0x00
-			front['rnrssi'] = 0x00
+			front['rrssi'] = 0x2d
+			front['rnrssi'] = 0x2d
 			steplist.append({'name':'assign', 'fid':self.id(), 'node':front})
 
 		steplist.append({'name':'assign', 'fid':self.id(), 'node':node})
@@ -305,8 +368,8 @@ class XBee(Thread):
 			self.log("deployment successful", True)
 			fnode = self.getnode(self.currdeploy['node']['faddr'])
 			if fnode is not None:
-				fnode['rssi'] = [0x00]
-				fnode['nrssi'] = [0x00]
+				fnode['rssi'] = [0x2d]
+				fnode['nrssi'] = [0x2d]
 			self.currdeploy['node']['deployed'] = True
 			self.currdeploy = None
 
@@ -317,10 +380,10 @@ class XBee(Thread):
 				return node
 		return None
 
-	def AddNode(self, addr, rssi, nrssi=0x00):
+	def AddNode(self, addr, rssi, nrssi):
 		node = {'addr':addr ,'rssi':[rssi] ,'nrssi':[rssi], 'time':time(), 'deployed':False, 'nt':time(),
-			'raddr':0x0000, 'rrssi':0x00, 'rnrssi':0x00, 
-			'faddr':0xFFFF, 'frssi':0x00, 'fnrssi':0x00}
+			'raddr':0x0000, 'rrssi':0x2d, 'rnrssi':0x2d, 
+			'faddr':0xFFFF, 'frssi':0x2d, 'fnrssi':0x2d}
 		self.log("add node:{}".format(node['addr']), True)
 		if len(self.nodes)>0:
 			node['faddr'] = self.nodes[-1]['addr']
@@ -330,20 +393,20 @@ class XBee(Thread):
 	def updatenode(self, naddr):
 		node = self.getnode(naddr)
 		if node is None:
-			node = self.AddNode(naddr, rssi, nrssi)
+			node = self.AddNode(naddr, 0x2d, 0x2d)
 
 		node['time'] = time()
 		if (node is self.getClosestDeployed()) and (self.lostchain):
 			 # we heard back from our closest guy, long time no see
 			self.lostchain = None
 
-	def updatenodeinfo(self, naddr, rssi, nrssi=0x00):
+	def updatenodeinfo(self, naddr, rssi, nrssi):
 		node = self.getnode(naddr)
 		if node is None:
 			node = self.AddNode(naddr, rssi, nrssi)
 		else:
-			# self.log("update node: {} {} {}".format(naddr, rssi, nrssi), False)
-			# self.log("       node: {} {} {}".format(node['addr'], node['rssi'], node['nrssi']), False)
+			self.log("update node: {} {} {}".format(naddr, rssi, nrssi), False)
+			self.log("       node: {} {} {}".format(node['addr'], node['rssi'], node['nrssi']), False)
 			node['rssi'].append(rssi)
 			if len(node['rssi']) > 10:
 				node['rssi'].remove(node['rssi'][0])
@@ -358,14 +421,15 @@ class XBee(Thread):
 
 
 	def updatenodeneighborinfo(self, naddr, faddr, frssi, fnrssi, raddr, rrssi, rnrssi):
+		self.log("update ne: {}  front:{} rs:{} ns:{} rear:{} rs:{} ns:{}".format(naddr, faddr, frssi, fnrssi, raddr, rrssi, rnrssi), False)
+		
 		node = self.getnode(naddr)
 		if node is None:
-			self.log("I hope this goes away...", True)
+			self.log("Neighbor report from unheard node: {}".format(naddr), True)
 			# we haven't deployed this node.  We should have heard a broadcast first
 			# and added it, ignore this scenario.
 			return
 
-		self.log("update ne: {}  front:{} rs:{} ns:{} rear:{} rs:{} ns:{}".format(naddr, faddr, frssi, fnrssi, raddr, rrssi, rnrssi), False)
 		self.log("       ne: {}  front:{} rs:{} ns:{} rear:{} rs:{} ns:{}".format(node['addr'], node['faddr'], node['frssi'], node['fnrssi'], node['raddr'], node['rrssi'], node['rnrssi']), False)
 
 		# if someone produced an erroneous one of these it could fuck our shit up
@@ -414,13 +478,13 @@ class XBee(Thread):
 
 		if fnode is not None:
 			fnode['raddr'] = rear
-			fnode['rrssi'] = 0x00
-			fnode['rnrssi'] = 0x00
+			fnode['rrssi'] = 0x2d
+			fnode['rnrssi'] = 0x2d
 
 		if rnode is not None:
 			rnode['faddr'] = front
-			rnode['frssi'] = 0x00
-			rnode['fnrssi'] = 0x00
+			rnode['frssi'] = 0x2d
+			rnode['fnrssi'] = 0x2d
 
 		postop = ""
 		for node in self.nodes:

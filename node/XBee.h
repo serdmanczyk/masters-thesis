@@ -83,7 +83,7 @@ private:
     bool MsgMark(u_char frameid);
 
     void ResetNeighbor(neighbor *nb, u_int addr);
-    bool NeighborUpdate(u_int addr, u_char rss);
+    bool NeighborUpdate(u_int addr);
     bool NeighborUpdate(u_int addr, u_char rss, u_char nrss);
     void NeighborAudit();
 

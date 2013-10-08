@@ -1,7 +1,7 @@
 from XBee import XBee
 import traceback
 from time import sleep
-from Xout import Xout
+# from Xout import Xout
 	
 try:
 	XBee = XBee("COM3")

@@ -1,14 +1,14 @@
-from Xhelp import *
-from time import time
-from datetime import datetime
-import csv
+# from Xhelp import *
+# from time import time
+# from datetime import datetime
+# import csv
 
-class Xout():
-	oentries = []
+# class Xout():
+# 	oentries = []
 
-	def __init__(self):
-		self.start = time()
-		self.outfile = datetime.utcnow().strftime("%Y-%m-%dT%H-%M-%S.csv")
+# 	def __init__(self):
+# 		self.start = time()
+# 		self.outfile = datetime.utcnow().strftime("%Y-%m-%dT%H-%M-%S.csv")
 
 	# def addoentry(self, nodes):
 	# 	now = time()
@@ -31,11 +31,11 @@ class Xout():
 	# 			self.oentries.append(entry)
 
 
-	def export(self):
-		fieldnames = ['time', 'relationship', 'rssi', 'nrssi', 'age', 'success']
-		with open(self.outfile, 'w') as f:
-			writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter=',', restval=" ", lineterminator='\n')
-			writer.writeheader()
-			writer.writerows(self.oentries)
-			print(str(self.oentries))
-			f.close()
+	# def export(self):
+	# 	fieldnames = ['time', 'relationship', 'rssi', 'nrssi', 'age', 'success']
+	# 	with open(self.outfile, 'w') as f:
+	# 		writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter=',', restval=" ", lineterminator='\n')
+	# 		writer.writeheader()
+	# 		writer.writerows(self.oentries)
+	# 		print(str(self.oentries))
+	# 		f.close()
