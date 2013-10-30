@@ -170,7 +170,7 @@ bool XBee::ParseXBee(u_char *message, u_int length)
             }
             else
             {
-               PingOut(pid, naddr);
+               PingOut(pid, naddr, &message[10]);
             }
             break;
          }
@@ -406,12 +406,12 @@ void XBee::LostNodeNotice(u_char addr)
    MsgQueue(msg, 12, frid);
 }
 
-bool XBee::PingOut(u_char pid, u_int naddr)
+bool XBee::PingOut(u_char pid, u_int naddr, u_char *data)
 {
-   u_char msg[14];
+   u_char msg[103];
    u_char frid = fid();
 
-   memcpy(msg, "\x7E\x00\x0B\x01\xFF\xFF\xFF\x00\xFF\x24\xFF\xFF\xFF\x00", 14);
+   memcpy(msg, "\x7E\x00\x64\x01\xFF\xFF\xFF\x00\xFF\x24\xFF\xFF\xFF", 13);
    msg[4] = frid; // frame id
    msg[5] = hb(m_fnb.addr); // address high byte
    msg[6] = lb(m_fnb.addr); // address low byte
@@ -419,8 +419,9 @@ bool XBee::PingOut(u_char pid, u_int naddr)
    msg[10] = pid; // packet id
    msg[11] = hb(naddr); // node address high
    msg[12] = lb(naddr); // node address low
+   memcpy(&msg[13], data, 90);
 
-   MsgQueue(msg, 14, frid);
+   MsgQueue(msg, 103, frid);
 
    return true;
 }
@@ -628,14 +629,15 @@ bool XBee::MsgAudit()
    {
       if (m_outmsgs[i].active)
       {
-         if ((m_now - m_outmsgs[i].senttime) > 100)
+         if ((m_now - m_outmsgs[i].senttime) > 150)
          {
+            delay(random(0,5));
             Tx(m_outmsgs[i].message, m_outmsgs[i].len);
             m_outmsgs[i].retries++;
             m_outmsgs[i].senttime = m_now;
          }
 
-         if (m_outmsgs[i].retries > 3)
+         if (m_outmsgs[i].retries > 4)
          {
             memset(m_outmsgs[i].message, 0, MSG_SIZE);
             m_outmsgs[i].len = 0;
@@ -755,7 +757,7 @@ u_char XBee::rssavg(u_char *rss, u_int len)
    return rssi;
 }
 
- u_char XBee::iterrssi(neighbor *nb)
+ void XBee::iterrssi(neighbor *nb)
  {
    nb->ri++;
    if (nb->ri > 9)
@@ -764,7 +766,7 @@ u_char XBee::rssavg(u_char *rss, u_int len)
       nb->rl++;
  }
 
- u_char XBee::iternrssi(neighbor *nb)
+ void XBee::iternrssi(neighbor *nb)
  {
    nb->ni++;
    if (nb->ni > 9)

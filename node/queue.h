@@ -1,7 +1,7 @@
 #ifndef Queue_H
 #define Queue_H
 
-#define Q_SIZE (120) //  Max XBee message length is 100.  Give a little space
+#define Q_SIZE (220) //  Max XBee message length is 100.  Give a little space
 
 class Queue{
 public:

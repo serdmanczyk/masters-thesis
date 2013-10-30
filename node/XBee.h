@@ -72,7 +72,7 @@ private:
     void LostNodeNotice(u_char addr);
     void ACK(u_int addr, u_char sfid);
 
-    bool PingOut(u_char pid, u_int naddr);
+    bool PingOut(u_char pid, u_int naddr, u_char *data);
     bool PingIn(u_char pid, u_int naddr); 
 
     void CtrlOut();
@@ -88,8 +88,8 @@ private:
     void NeighborAudit();
 
     u_char rssavg(u_char *rss, u_int len);
-    u_char iterrssi(neighbor *nb);
-    u_char iternrssi(neighbor *nb);
+    void iterrssi(neighbor *nb);
+    void iternrssi(neighbor *nb);
     u_char rearrssi();
     u_char frontrssi();
 

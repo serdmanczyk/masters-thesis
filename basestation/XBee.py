@@ -38,7 +38,7 @@ class XBee(Thread):
 	def log(self, message, verbose):
 		if message.find("run time") != -1:
 			out = message + "\n"
-		out = datetime.utcnow().strftime("%H-%M-%S: ") + message + "\n"
+		out = datetime.utcnow().strftime("%H-%M-%S.%f: ") + message + "\n"
 		if message.find("Rx") != -1:
 			out = "\n" + out
 		if message.find("success rate") != -1:
@@ -64,13 +64,17 @@ class XBee(Thread):
 		now = time()
 		nodes = False
 		outarrr = []
+		cnode = self.getClosestDeployed()
 		for node in self.nodes:
 			if node['deployed']:
 				nodes = True
-				outarrr.append("Node:{} RSSI:{:.0f} NRSSI:{:.0f} age:{}".format(node['addr'], avg(node['rssi']), avg(node['nrssi']), 'y' if (now-node['time']) > 1.5 else 'n'))
+				if node is cnode:
+					outarrr.append("Node:{}\tRSSI:{:.0f} NRSSI:{:.0f} age:{}".format(node['addr'], avg(node['rssi']), avg(node['nrssi']), 'y' if (now-node['time']) > 1.5 else 'n'))
+				else:
+					outarrr.append("Node:{}".format(node['addr']))
 				if node['faddr'] != 0xFFFF:
-					outarrr.append("\tFront:{}  RSSI:{} NRSSI:{} age:{}".format(node['faddr'], node['frssi'], node['fnrssi'],  'y' if (now-node['nt']) > 3 else 'n'))
-				outarrr.append("\tRear:{}   RSSI:{} NRSSI:{} age:{}".format(node['raddr'], node['rrssi'], node['rnrssi'],  'y' if (now-node['nt']) > 3 else 'n'))
+					outarrr.append("\tFront:{}\tRSSI:{} NRSSI:{} age:{}".format(node['faddr'], node['frssi'], node['fnrssi'],  'y' if (now-node['nt']) > 3 else 'n'))
+				outarrr.append("\tRear:{}\tRSSI:{} NRSSI:{} age:{}".format(node['raddr'], node['rrssi'], node['rnrssi'],  'y' if (now-node['nt']) > 3 else 'n'))
 		if nodes:
 			outarrr.append("run time:{:.2f}".format(now-self.starttime))
 			self.log("success rate: {:.2f}".format(100-(100*avg(self.pingsuccess))), True)
@@ -135,7 +139,7 @@ class XBee(Thread):
 			sleep(0.005) # 1ms
 			self.Rx()
 			
-			if (((time() - self.starttime) > 10) and (self.state == self.listen)):
+			if (((time() - self.starttime) > 5) and (self.state == self.listen)):
 				self.log("stop listening, start deploying", True)
 				self.state = self.processing
 
@@ -281,8 +285,8 @@ class XBee(Thread):
 				break
 			else:
 				rnode = node
-		if rnode is not None:
-			self.log("closest deployed:{}".format(rnode['addr']), False)
+		# if rnode is not None:
+		# 	self.log("closest deployed:{}".format(rnode['addr']), False)
 		return rnode
 
 	def getNextnonDeployed(self):
@@ -300,7 +304,7 @@ class XBee(Thread):
 		else:
 			rss = nrssi
 		self.log("check threshold:{} rss:{}".format(node['addr'], rss), False)
-		if rss > 70:
+		if rss > 40:
 			return True
 		return False
 
@@ -539,7 +543,7 @@ class XBee(Thread):
 	def msgaudit(self):
 		deletelist = []
 		for msg in self.outmsgs:
-			if (time() - msg['sent']) > 0.1:
+			if (time() - msg['sent']) > 0.2:
 				self.serial.write(escape(msg['msg']))
 				msg['retries'] = msg['retries'] + 1
 			if ((time() - msg['sent']) > 1.0) or (msg['retries'] > 3):
@@ -619,7 +623,7 @@ class XBee(Thread):
 		furthest = self.nodes[0]
 		if furthest['deployed'] and closest['deployed']:
 			fid = self.id()
-			message = bytearray(b'\x7e\x00\x0B\x01\xee\xee\xee\x00\xee\x24\xee\xee\xee\x00\x00')
+			message = bytearray(b'\x7e\x00\x64\x01\xee\xee\xee\x00\xee\x24\xee\xee\xee')
 			message[4] = fid # frame id
 			message[5] = (closest['addr']&0xFF00)>>8
 			message[6] = closest['addr']&0xFF
@@ -627,8 +631,12 @@ class XBee(Thread):
 			message[10] = fid    # ping id
 			message[11] = (furthest['addr']&0xFF00)>>8
 			message[12] = furthest['addr']&0xFF
-			message[14] = checksum(message[3:])
+			for i in range(0,90):
+				message.append(0x61)
+			# message += b'\x63\x61\x63\x61\x63\x61\x63\x61\x63\x61\x63\x61\x63\x61\x63\x61\x63\x61\x63\x61\x63\x61\x63\x61\x63\x61\x63\x61\x63\x61\x63\x61\x63\x61\x63\x61\x63\x61\x63\x61\x63\x61\x63\x61\x63\x61\x63\x61\x63\x61\x63\x61\x63\x61\x63\x61\x63\x61\x63\x61\x63\x61\x63\x61\x63\x61\x63\x61\x63\x61\x63\x61\x63\x61\x63\x61\x63\x61\x63\x61\x63\x61\x63\x61\x63\x61\x63\x61\x63\x61'
+			message.append(checksum(message[3:]))
 			self.log("Send Ping; closest:{}  furthest:{} id:{}".format(closest['addr'], furthest['addr'], fid), False)
+			self.log("message- len:{} content:{}".format(len(message), hexformat(message)), False)
 			self.AddPing(message, furthest['addr'], fid)
 
 	def AddPing(self, message, addr, fid):
