@@ -7,7 +7,7 @@
 #define u_int unsigned int
 #define u_long  unsigned long
 
-#define MSG_SIZE (35) // Maximum message size
+#define MSG_SIZE (200) // Maximum message size
 #define MAX_MSGQ (20)
 
 #define RTS PIN_P54
