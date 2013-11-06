@@ -1,12 +1,14 @@
 from XBee import XBee
 import traceback
 from time import sleep
-# from Xout import Xout
-	
-try:
+
+try: 
 	XBee = XBee("COM3")
 	while True:
-		sleep(0.5)
+		sleep(1)
+		# if (len(msgs)):
+		# 	XBee.FakeRx(msgs.pop(0))
+
 except KeyboardInterrupt:
 	pass
 except Exception:

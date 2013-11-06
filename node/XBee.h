@@ -58,7 +58,7 @@ public:
     bool Pulse(u_long now);
     
 private:
-    bool ParseXBee(u_char *message, u_int length);
+    bool ParseXBee(u_char *message, u_char length);
     bool ATcmd(u_int cmd, u_char *data);
     bool ParseRx();
 
@@ -68,7 +68,7 @@ private:
     void LostRearAck(u_char addr);
     void NRSS();
     bool RSSReport();
-    bool FwdRSSReport(u_char *data);
+    bool FwdRSSReport(u_char *data, u_char length);
     void LostNodeNotice(u_char addr);
     void ACK(u_int addr, u_char sfid);
 
