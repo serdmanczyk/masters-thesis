@@ -146,7 +146,7 @@ bool XBee::ParseXBee(u_char *message, u_char length)
       if (id != 0)
          ACK(addr, id);
 
-      NeighborUpdate(addr);
+      NeighborUpdate(addr, rss);
 
       switch(message[6])
       {
@@ -329,7 +329,7 @@ void XBee::NRSS()
          u_char ri = nodes[i]->ri;
 
          if (ri == 0){
-            ri = 9;
+            ri = (RSSSZ-1);
          }else{
             ri -= 1;
          }
@@ -486,13 +486,13 @@ void XBee::ResetNeighbor(neighbor *nb, u_int addr)
    nb->ni = 0;
    nb->rl = 0;
    nb->nl = 0;
-   memset(nb->rssi, 0x45, 10);
-   memset(nb->nrssi, 0x45, 10);
+   memset(nb->rssi, 0x45, RSSSZ);
+   memset(nb->nrssi, 0x45, RSSSZ);
    nb->lstime = m_now;
 }
 
 
-bool XBee::NeighborUpdate(u_int addr)
+bool XBee::NeighborUpdate(u_int addr, u_char rss)
 {
    neighbor *nodes[2];
 
@@ -503,6 +503,8 @@ bool XBee::NeighborUpdate(u_int addr)
    {
       if (nodes[i]->addr == addr)
       {
+         nodes[i]->rssi[nodes[i]->ri] = rss;
+         iterrssi(nodes[i]);
          nodes[i]->lstime = m_now;
       }
    }
@@ -714,8 +716,8 @@ void XBee::ServoMgr()
 
 int XBee::CalcCtrl()
 {
-   u_char RSSthh = 80;
-   u_char RSSthl = RSSthh - 10;
+   u_char RSSthh = 75;
+   u_char RSSthl = RSSthh - 5;
    u_char rrssi = rearrssi();
    u_char frssi = frontrssi();
    int Vir = 0, Vif = 0;
@@ -725,13 +727,14 @@ int XBee::CalcCtrl()
    //  adjust servo signal 3-1 to RSS beyond threshold
 
    if (rrssi > RSSthh)  //  too far from rear
-      Vir = -3 * (rrssi - RSSthh);
-   else if (rrssi < RSSthl)  // too close to rear
-      Vir = 3 * (RSSthl - rrssi);
+      Vir += -3 * (rrssi - RSSthh);
+   
+   if (rrssi < RSSthl)  // too close to rear
+      Vir += 3 * (RSSthl - rrssi);
 
    Vo = m_CtrlIn + Vir;
 
-   if (frssi < 40)  // too close to front
+   if (frssi < 50)  // too close to front
       Vo = 90;
 
    if (Vo > 180)
@@ -750,11 +753,11 @@ int XBee::CalcCtrl()
 
 u_char XBee::rssavg(u_char *rss, u_int len)
 {
-   u_char rssi = 0x5A; // -90 dbm
+   u_char rssi = 50;
    u_int sum = 0;
 
    if (len == 0)
-      return 90;
+      return rssi;
 
    for (u_char i=0; i<len;i++)
    {
@@ -764,9 +767,6 @@ u_char XBee::rssavg(u_char *rss, u_int len)
    rssi = (u_char)(sum / len);
 
    if (rssi > 90)
-      rssi = 45;
-
-   if (rssi == 0)
       rssi = 90;
 
    return rssi;
@@ -775,41 +775,36 @@ u_char XBee::rssavg(u_char *rss, u_int len)
  void XBee::iterrssi(neighbor *nb)
  {
    nb->ri++;
-   if (nb->ri > 9)
+   if (nb->ri > (RSSSZ-1))
       nb->ri = 0;
-   if (nb->rl < 10)
+   if (nb->rl < RSSSZ)
       nb->rl++;
  }
 
  void XBee::iternrssi(neighbor *nb)
  {
    nb->ni++;
-   if (nb->ni > 9)
+   if (nb->ni > (RSSSZ-1))
       nb->ni = 0;
-   if (nb->nl < 10)
+   if (nb->nl < RSSSZ)
       nb->nl++;
  }
 
 u_char XBee::rearrssi()
 {
-   u_char rrssi = 70;
-   u_char nrssi = 70;
+   u_char rrssi = rssavg(m_rnb.rssi, m_rnb.rl);
+   u_char nrssi = rssavg(m_rnb.nrssi, m_rnb.nl);
 
-   rrssi = rssavg(m_rnb.rssi, m_rnb.rl);
-   nrssi = rssavg(m_rnb.nrssi, m_rnb.nl);
-
-   return rrssi > nrssi ? nrssi : rrssi;
+   return rrssi > nrssi ? rrssi : nrssi;
 }
 
 u_char XBee::frontrssi()
 {
-   u_char rrssi = 70;
-   u_char nrssi = 70;
+   u_char rrssi = rssavg(m_fnb.rssi, m_fnb.rl);
+   u_char nrssi = rssavg(m_fnb.nrssi, m_fnb.nl);
+   //  Keep in mind, greater is weaker because we're reversed here
 
-   rrssi = rssavg(m_fnb.rssi, m_rnb.rl);
-   nrssi = rssavg(m_fnb.nrssi, m_rnb.nl);
-
-   return rrssi > nrssi ? nrssi : rrssi;
+   return rrssi > nrssi ? rrssi : nrssi;
 }
 
 u_char XBee::fid()

@@ -312,9 +312,9 @@ class XBee(Thread):
 		nrssi = avg(node['rssi'])
 		nerssi = avg(node['nrssi'])
 		if nrssi > nerssi:
-			rss = nerssi
-		else:
 			rss = nrssi
+		else:
+			rss = nerssi
 		self.log("check threshold:{} rss:{}".format(node['addr'], rss), False)
 		if rss > 70:
 			return True
@@ -445,12 +445,12 @@ class XBee(Thread):
 			self.log("update node: {} {} {}".format(naddr, rssi, nrssi), False)
 			self.log("       node: {} {} {}".format(node['addr'], node['rssi'], node['nrssi']), False)
 			node['rssi'].append(rssi)
-			if len(node['rssi']) > 10:
+			if len(node['rssi']) > 3:
 				node['rssi'].remove(node['rssi'][0])
 			node['time'] = time()
 			if nrssi != 0x00:
 				node['nrssi'].append(nrssi)
-				if len(node['nrssi']) > 10:
+				if len(node['nrssi']) > 3:
 					node['nrssi'].remove(node['nrssi'][0])
 			if (node is self.getClosestDeployed()) and (self.lostchain):
 				 # we heard back from our closest guy, long time no see

@@ -9,6 +9,7 @@
 
 #define MSG_SIZE (200) // Maximum message size
 #define MAX_MSGQ (20)
+#define RSSSZ (10)
 
 #define RTS PIN_P54
 #define CTS PIN_P55
@@ -29,8 +30,8 @@ enum STATE {
 typedef struct
 {
    u_int addr;
-   u_char rssi[10];
-   u_char nrssi[10];
+   u_char rssi[RSSSZ];
+   u_char nrssi[RSSSZ];
    u_char ri;
    u_char ni;
    u_char rl;
@@ -83,7 +84,7 @@ private:
     bool MsgMark(u_char frameid);
 
     void ResetNeighbor(neighbor *nb, u_int addr);
-    bool NeighborUpdate(u_int addr);
+    bool NeighborUpdate(u_int addr, u_char rss);
     bool NeighborUpdate(u_int addr, u_char rss, u_char nrss);
     void NeighborAudit();
 
