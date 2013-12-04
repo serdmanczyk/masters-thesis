@@ -316,7 +316,7 @@ class XBee(Thread):
 		else:
 			rss = nerssi
 		self.log("check threshold:{} rss:{}".format(node['addr'], rss), False)
-		if rss > 70:
+		if rss > 75:
 			return True
 		return False
 

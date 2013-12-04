@@ -720,33 +720,26 @@ int XBee::CalcCtrl()
    u_char RSSthl = RSSthh - 5;
    u_char rrssi = rearrssi();
    u_char frssi = frontrssi();
-   int Vir = 0, Vif = 0;
-   int Vo = 0;
-
-
-   //  adjust servo signal 3-1 to RSS beyond threshold
-
-   if (rrssi > RSSthh)  //  too far from rear
-      Vir += -3 * (rrssi - RSSthh);
-   
-   if (rrssi < RSSthl)  // too close to rear
-      Vir += 3 * (RSSthl - rrssi);
-
-   Vo = m_CtrlIn + Vir;
-
-   if (frssi < 50)  // too close to front
-      Vo = 90;
-
-   if (Vo > 180)
-      Vo = 180;
-
-   if (Vo < 0)
-      Vo = 0;
+   int Vo = m_CtrlIn;
 
    if (m_brearlost)
    {
-      Vo = 90;
+      return 80;
    }
+
+   //  adjust servo signal 3-1 to RSS beyond threshold
+
+   if (frssi < 50)  // too close to front
+      Vo = 90;
+   else if (rrssi > RSSthh)  //  too far from rear
+      Vo += -3 * (rrssi - RSSthh);
+   else if (rrssi < RSSthl)  // too close to rear
+      Vo += 3 * (RSSthl - rrssi);
+
+   if (Vo > 180)
+      Vo = 180;
+   else if (Vo < 0)
+      Vo = 0;
 
    return Vo; 
 }
